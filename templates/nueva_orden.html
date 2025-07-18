@@ -1,0 +1,216 @@
+{% include 'header.html' %}
+<body>
+{% include 'nav.html' %}
+{% block content %}
+<div class="container mt-4" style="max-width:800px;">
+  <h2>Crear Nueva Orden de Compra</h2>
+  <div id="alert-placeholder"></div>
+
+  <form id="formNuevaOrden" onsubmit="return submitNuevaOrden();">
+    <!-- Número de orden -->
+    <div class="mb-3">
+      <label class="form-label">Número de Orden</label>
+      <input type="text" class="form-control" id="inputOrderNumber" placeholder="Ej: OC-2025-001">
+    </div>
+
+    <!-- Cliente -->
+    <div class="mb-3">
+      <label class="form-label">Cliente</label>
+      <input list="clients_suggest" class="form-control" id="inputClient">
+      <datalist id="clients_suggest"></datalist>
+    </div>
+
+    <!-- Tabla de líneas de OC -->
+    <table class="table table-bordered" id="tablaOrden">
+      <thead>
+        <tr>
+          <th>Producto</th>
+          <th>Marca</th>
+          <th>Cantidad</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr class="fila-item">
+          <td>
+            <input list="prod_suggest_0" class="form-control input-name">
+            <datalist id="prod_suggest_0"></datalist>
+          </td>
+          <td><input type="text" class="form-control input-brand"></td>
+          <td><input type="number" class="form-control input-qty" min="1" value="1"></td>
+          <td>
+            <button type="button" class="btn btn-sm btn-danger" onclick="removeRow(this)">−</button>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+
+    <button type="button" class="btn btn-secondary mb-3" onclick="addRow()">+ Agregar línea</button>
+    <br>
+    <button type="submit" class="btn btn-primary">Crear Orden</button>
+    <a href="{{ url_for('ordenes_listado') }}" class="btn btn-secondary">Cancelar</a>
+  </form>
+</div>
+
+<template id="templateFila">
+  <tr class="fila-item">
+    <td>
+      <input list="" class="form-control input-name">
+      <datalist></datalist>
+    </td>
+    <td><input type="text" class="form-control input-brand"></td>
+    <td><input type="number" class="form-control input-qty" min="1" value="1"></td>
+    <td>
+      <button type="button" class="btn btn-sm btn-danger" onclick="removeRow(this)">−</button>
+    </td>
+  </tr>
+</template>
+{% endblock %}
+
+
+{% block scripts %}
+<script>
+  // Autocomplete clientes
+  const clientInput = document.getElementById('inputClient');
+  const clientDList = document.getElementById('clients_suggest');
+  clientInput.addEventListener('input', () => {
+    const q = clientInput.value.trim();
+    clientDList.innerHTML = '';
+    if (q.length < 2) return;
+    fetch(`/api/clients/suggest?q=${encodeURIComponent(q)}`)
+      .then(r => r.json())
+      .then(list => {
+        clientDList.innerHTML = '';
+        list.forEach(c => {
+          const opt = document.createElement('option');
+          opt.value = c.name;
+          clientDList.appendChild(opt);
+        });
+      })
+      .catch(console.error);
+  });
+
+  // Autocomplete productos
+  function fetchProductSuggestions(query, dl, map) {
+    fetch(`/api/productos/suggest?q=${encodeURIComponent(query)}`)
+      .then(r => r.json())
+      .then(list => {
+        dl.innerHTML = '';
+        Object.keys(map).forEach(k=>delete map[k]);
+        list.forEach(p => {
+          map[p.name] = p.brand;
+          const opt = document.createElement('option');
+          opt.value = p.name;
+          dl.appendChild(opt);
+        });
+      })
+      .catch(console.error);
+  }
+
+  function attachProductListeners(nameEl, dl, brandEl) {
+    const suggestionMap = {};
+    nameEl.addEventListener('input', () => {
+      const q = nameEl.value.trim();
+      if (q.length < 2) {
+        dl.innerHTML = '';
+        return;
+      }
+      fetchProductSuggestions(q, dl, suggestionMap);
+      setTimeout(() => {
+        const br = suggestionMap[nameEl.value];
+        if (br) brandEl.value = br;
+      }, 100);
+    });
+  }
+
+  // Gestión de filas
+  let rowCount = 1;
+  function addRow() {
+    const tpl   = document.getElementById('templateFila');
+    const clone = tpl.content.cloneNode(true);
+    const tr    = clone.querySelector('tr');
+    const idx   = rowCount++;
+    const nameI  = tr.querySelector('.input-name');
+    const dl     = tr.querySelector('datalist');
+    const brandI = tr.querySelector('.input-brand');
+
+    nameI.setAttribute('list', `prod_suggest_${idx}`);
+    dl.id = `prod_suggest_${idx}`;
+    attachProductListeners(nameI, dl, brandI);
+
+    document.querySelector('#tablaOrden tbody').appendChild(tr);
+  }
+  function removeRow(btn) {
+    const tb = document.querySelector('#tablaOrden tbody');
+    if (tb.children.length > 1) btn.closest('tr').remove();
+  }
+  (function initFirst() {
+    const r = document.querySelector('#tablaOrden tbody tr');
+    const nameI  = r.querySelector('.input-name');
+    const dl     = r.querySelector('datalist');
+    const brandI = r.querySelector('.input-brand');
+    nameI.setAttribute('list','prod_suggest_0');
+    dl.id = 'prod_suggest_0';
+    attachProductListeners(nameI, dl, brandI);
+  })();
+
+  // Feedback
+  function showAlert(type, msg) {
+    document.getElementById('alert-placeholder').innerHTML = `
+      <div class="alert alert-${type} alert-dismissible fade show">
+        ${msg}
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+      </div>`;
+  }
+
+  // Envío de la nueva orden
+  function submitNuevaOrden() {
+    const number = document.getElementById('inputOrderNumber').value.trim();
+    const client = clientInput.value.trim();
+    if (!number) {
+      showAlert('warning','Debes indicar el número de orden');
+      return false;
+    }
+    if (!client) {
+      showAlert('warning','Debes indicar el cliente');
+      return false;
+    }
+
+    const items = [];
+    let ok = true;
+    document.querySelectorAll('.fila-item').forEach((tr,idx) => {
+      const name  = tr.querySelector('.input-name').value.trim();
+      const brand = tr.querySelector('.input-brand').value.trim();
+      const qty   = parseInt(tr.querySelector('.input-qty').value,10);
+      if (!name||!brand||isNaN(qty)||qty<1) {
+        showAlert('warning',`Línea ${idx+1}: completa todos los campos`);
+        ok = false;
+        return;
+      }
+      items.push({ name, brand, quantity: qty });
+    });
+    if (!ok) return false;
+
+    const payload = { number, client, items };
+    fetch('/ordenes/nuevo',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(payload)
+    })
+    .then(r=>r.json().then(b=>({status:r.status, body:b})))
+    .then(({status,body}) => {
+      if (status===201) {
+        showAlert('success', body.message);
+        setTimeout(()=>window.location.href='/ordenes', 1000);
+      } else {
+        showAlert('danger', body.error);
+      }
+    })
+    .catch(()=>showAlert('danger','Error de red'));
+
+    return false;
+  }
+</script>
+{% endblock %}
+</body>
+</html>

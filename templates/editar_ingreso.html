@@ -1,0 +1,129 @@
+{% include 'header.html' %}
+<body>
+{% include 'nav.html' %}
+{% block content %}
+<div class="container mt-4" style="max-width:800px;">
+  <h2>Editar Ingreso #{{ batch_id }}</h2>
+  <div id="alert-placeholder"></div>
+
+  <form id="formEditarIngresos" onsubmit="return submitEditarIngresos();">
+    <table class="table table-bordered" id="tablaIngresos">
+      <thead>
+        <tr>
+          <th>Producto</th><th>Marca</th><th>Cantidad</th><th></th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+    <button type="button" class="btn btn-secondary mb-3" onclick="addRow()">+ Agregar línea</button>
+    <br>
+    <button type="submit" class="btn btn-primary">Guardar Cambios</button>
+    <a href="{{ url_for('ingresos_historicos') }}" class="btn btn-secondary">Volver</a>
+  </form>
+</div>
+
+<template id="tplRow">
+  <tr class="fila-item">
+    <td>
+      <input list="" class="form-control input-name">
+      <datalist></datalist>
+      <input type="hidden" class="input-entry-id">
+    </td>
+    <td><input type="text" class="form-control input-brand"></td>
+    <td><input type="number" class="form-control input-qty" min="0"></td>
+    <td><button type="button" class="btn btn-sm btn-danger" onclick="removeRow(this)">−</button></td>
+  </tr>
+</template>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const initialItems = {{ items|tojson }};
+  let rowCnt = 0;
+
+  document.addEventListener('DOMContentLoaded', () => {
+    initialItems.forEach(it => addRow(it));
+  });
+
+  function setupRow(tr, data) {
+    const idFld = tr.querySelector('.input-entry-id');
+    const nm    = tr.querySelector('.input-name');
+    const dl    = tr.querySelector('datalist');
+    const br    = tr.querySelector('.input-brand');
+    const qt    = tr.querySelector('.input-qty');
+
+    if (data) {
+      idFld.value = data.entry_id;
+      nm.value    = data.product;
+      br.value    = data.brand;
+      qt.value    = data.quantity;
+    }
+
+    const idx = rowCnt++;
+    nm.setAttribute('list', `prod_suggest_${idx}`);
+    dl.id = `prod_suggest_${idx}`;
+
+    // autocomplete productos (igual que en despachos)...
+  }
+
+  function addRow(data=null){
+    const tpl   = document.getElementById('tplRow');
+    const clone = tpl.content.cloneNode(true);
+    const tr    = clone.querySelector('tr');
+    setupRow(tr, data);
+    document.querySelector('#tablaIngresos tbody').appendChild(tr);
+  }
+
+  function removeRow(btn){
+    const tb = document.querySelector('#tablaIngresos tbody');
+    if (tb.children.length>1) btn.closest('tr').remove();
+  }
+
+  function showAlert(type,msg){
+    document.getElementById('alert-placeholder').innerHTML = `
+      <div class="alert alert-${type} alert-dismissible fade show" role="alert">
+        ${msg}
+        <button class="btn-close" data-bs-dismiss="alert"></button>
+      </div>`;
+  }
+
+  function submitEditarIngresos(){
+    const items = [];
+    let ok = true;
+    document.querySelectorAll('.fila-item').forEach(tr=>{
+      const eid   = tr.querySelector('.input-entry-id').value||null;
+      const name  = tr.querySelector('.input-name').value.trim();
+      const brand = tr.querySelector('.input-brand').value.trim();
+      const qty   = parseInt(tr.querySelector('.input-qty').value,10);
+      if (!name||!brand||isNaN(qty)||qty<0) ok=false;
+      items.push({ entry_id: eid, product:name, brand, quantity:qty });
+    });
+    if (!ok){
+      showAlert('warning','Revisa las líneas');
+      return false;
+    }
+
+    const batchId = {{ batch_id }};
+    fetch(`/ingresos/editar/${batchId}`, {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({ items })
+    })
+    .then(async res => {
+      const b = await res.json();
+      if (res.ok){
+        showAlert('success', b.message);
+        setTimeout(()=>window.location.href='/ingresos/historicos',800);
+      } else {
+        showAlert('danger', b.error);
+      }
+    })
+    .catch(()=>showAlert('danger','Error de red'));
+
+    return false;
+  }
+</script>
+{% endblock %}
+
+</body>
+</html>

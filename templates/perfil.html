@@ -1,0 +1,118 @@
+{% include 'header.html' %}
+<body>
+{% include 'nav.html' %}
+{% block content %}
+<div class="container mt-4" style="max-width:600px;">
+  <h2>Mi Perfil</h2>
+  <div id="alert-placeholder"></div>
+
+  <!-- Formulario de datos -->
+  <form id="formPerfil" class="mb-4" onsubmit="return submitPerfil();">
+    <div class="mb-3">
+      <label class="form-label">Usuario (no editable)</label>
+      <input type="text" class="form-control" value="{{ username }}" disabled>
+    </div>
+    <div class="mb-3">
+      <label class="form-label">Nombre</label>
+      <input type="text" class="form-control" id="perfilName" value="{{ name }}">
+    </div>
+    <div class="mb-3">
+      <label class="form-label">Email</label>
+      <input type="email" class="form-control" id="perfilEmail" value="{{ email }}">
+    </div>
+    <button type="submit" class="btn btn-primary">Guardar cambios</button>
+  </form>
+
+  <hr>
+
+  <!-- Formulario de contraseña -->
+  <form id="formPassword" onsubmit="return submitPassword();">
+    <h4>Cambiar Contraseña</h4>
+    <div class="mb-3">
+      <label class="form-label">Contraseña Actual</label>
+      <input type="password" class="form-control" id="oldPass">
+    </div>
+    <div class="mb-3">
+      <label class="form-label">Nueva Contraseña</label>
+      <input type="password" class="form-control" id="newPass">
+    </div>
+    <div class="mb-3">
+      <label class="form-label">Repetir Nueva</label>
+      <input type="password" class="form-control" id="repNewPass">
+    </div>
+    <button type="submit" class="btn btn-warning">Cambiar contraseña</button>
+  </form>
+  <hr>
+    <h4>Tema</h4>
+  <label class="form-check-label">
+  <input type="checkbox" id="toggleTheme" {% if session.get('theme')=='light' %}checked{% endif %}>
+  Light theme
+</label>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  // placeholder para alertas
+  document.getElementById('toggleTheme').addEventListener('change', e=>{
+    fetch('/perfil/theme', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ theme: e.target.checked ? 'light' : 'dark' })
+    }).then(_=>location.reload());
+  });
+  function showAlert(type, msg) {
+    document.getElementById('alert-placeholder').innerHTML = `
+      <div class="alert alert-${type} alert-dismissible fade show" role="alert">
+        ${msg}
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+      </div>`;
+  }
+
+  // Enviar cambios de perfil (name/email)
+  function submitPerfil() {
+    const name = document.getElementById('perfilName').value.trim();
+    const email = document.getElementById('perfilEmail').value.trim();
+    fetch('/api/perfil', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({name, email})
+    })
+    .then(r => r.json().then(b => ({status:r.status,body:b})))
+    .then(({status,body}) => {
+      if (status===200) showAlert('success', body.message);
+      else showAlert('danger', body.error);
+    })
+    .catch(()=> showAlert('danger','Error de red'));
+    return false;
+  }
+
+  // Enviar cambio de password
+  function submitPassword() {
+    const old_pass = document.getElementById('oldPass').value;
+    const new_pass = document.getElementById('newPass').value;
+    const repet_new_pass = document.getElementById('repNewPass').value;
+    fetch('/api/perfil/password', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({old_pass, new_pass, repet_new_pass})
+    })
+    .then(r => r.json().then(b => ({status:r.status,body:b})))
+    .then(({status,body}) => {
+      if (status===200) {
+        showAlert('success', body.message);
+        // limpiar campos
+        document.getElementById('oldPass').value = '';
+        document.getElementById('newPass').value = '';
+        document.getElementById('repNewPass').value = '';
+      } else {
+        showAlert('danger', body.error);
+      }
+    })
+    .catch(()=> showAlert('danger','Error de red'));
+    return false;
+  }
+</script>
+{% endblock %}
+</body>
+</html>

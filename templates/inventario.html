@@ -1,0 +1,184 @@
+{% include 'header.html' %}
+<body>
+{% include 'nav.html' %}
+{% block content %}
+<div class="container mt-4">
+  <h2>Inventario</h2>
+
+  <div class="mb-3">
+    <input
+      type="text"
+      id="searchInput"
+      class="form-control"
+      placeholder="Buscar por nombre o marca..."
+    >
+  </div>
+
+  <table class="table table-striped" id="inventoryTable">
+    <thead>
+      <tr>
+        <th data-field="id">ID</th>
+        <th data-field="name">Nombre</th>
+        <th data-field="brand">Marca</th>
+        <th data-field="stock">Stock</th>
+        {% if is_Admin %}
+        <th>Acciones</th>
+        {% endif %}
+      </tr>
+    </thead>
+    <tbody>
+      <!-- se completa vía JS -->
+    </tbody>
+  </table>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  // Variable inyectada por Jinja para saber si el usuario es admin
+  const isAdmin = {{ 'true' if is_Admin else 'false' }};
+
+  let inventory = [];       // Datos originales
+  let currentField = 'id';  // Campo de orden actual
+  let asc = true;           // Dirección de orden: ascendente/descendente
+
+  // 1. Cargar inventario al inicio
+  function loadInventory() {
+    fetch('/api/inventario')
+      .then(res => res.json())
+      .then(data => {
+        inventory = data;
+        renderTable(inventory);
+      })
+      .catch(console.error);
+  }
+
+  // 2. Renderizar la tabla, ordenando y filtrando
+  function renderTable(arr) {
+    const tbody = document.querySelector('#inventoryTable tbody');
+    tbody.innerHTML = '';
+
+    // Ordenamos según currentField y asc
+    arr.sort((a, b) => {
+      const fa = a[currentField], fb = b[currentField];
+      if (fa < fb) return asc ? -1 : 1;
+      if (fa > fb) return asc ? 1 : -1;
+      return 0;
+    });
+
+    // Creamos las filas
+    for (const p of arr) {
+      const tr = document.createElement('tr');
+      tr.dataset.id = p.id;
+      tr.innerHTML = `
+        <td>${p.id}</td>
+        <td>${p.name}</td>
+        <td>${p.brand}</td>
+        <td>${p.stock}</td>
+        ${ isAdmin 
+          ? `<td>
+               <button class="btn btn-sm btn-outline-primary"
+                       onclick="editProduct(${p.id})">
+                 Editar
+               </button>
+             </td>`
+          : ``
+        }
+      `;
+      tbody.appendChild(tr);
+    }
+  }
+
+  // 3. Cabeceras clicables para cambiar el orden
+  document.querySelectorAll('#inventoryTable th[data-field]').forEach(th => {
+    th.style.cursor = 'pointer';
+    th.addEventListener('click', () => {
+      const field = th.dataset.field;
+      if (currentField === field) {
+        asc = !asc;
+      } else {
+        currentField = field;
+        asc = true;
+      }
+      applyFilter();
+    });
+  });
+
+  // 4. Búsqueda por nombre o marca
+  document.getElementById('searchInput')
+          .addEventListener('input', applyFilter);
+
+  function applyFilter() {
+    const q = document.getElementById('searchInput').value
+                .trim().toLowerCase();
+    if (!q) {
+      renderTable(inventory);
+    } else {
+      const filtered = inventory.filter(p =>
+        p.name.toLowerCase().includes(q) ||
+        p.brand.toLowerCase().includes(q)
+      );
+      renderTable(filtered);
+    }
+  }
+
+  // 5. Función de edición inline (solo admins)
+  function editProduct(id) {
+    // Localizar la fila
+    const tr = document.querySelector(
+      `#inventoryTable tr[data-id="${id}"]`
+    );
+    const [ , tdName, tdBrand, tdStock ] = tr.children;
+
+    // Pedimos nuevos valores
+    const newName  = prompt('Nuevo nombre:', tdName.textContent);
+    if (newName === null) return;
+    const newBrand = prompt('Nueva marca:', tdBrand.textContent);
+    if (newBrand === null) return;
+    const stockStr = prompt('Nuevo stock (≥0):', tdStock.textContent);
+    if (stockStr === null) return;
+    const newStock = parseInt(stockStr, 10);
+    if (isNaN(newStock) || newStock < 0) {
+      alert('Stock inválido');
+      return;
+    }
+
+    // Enviar la actualización al backend
+    fetch(`/api/productos/${id}`, {
+      method: 'PUT',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({
+        name:  newName.trim(),
+        brand: newBrand.trim(),
+        stock: newStock
+      })
+    })
+    .then(res => res.json().then(body => ({status: res.status, body})))
+    .then(({status, body}) => {
+      if (status === 200) {
+        // Actualizar la fila al vuelo
+        tdName.textContent  = body.product.name;
+        tdBrand.textContent = body.product.brand;
+        tdStock.textContent = body.product.stock;
+        // También actualizamos el array original
+        const idx = inventory.findIndex(p => p.id === id);
+        if (idx !== -1) {
+          inventory[idx] = body.product;
+        }
+      } else {
+        alert(body.error || 'No se pudo actualizar el producto');
+      }
+    })
+    .catch(err => {
+      console.error(err);
+      alert('Error de red. Intenta de nuevo.');
+    });
+  }
+
+  // Inicializar todo al cargar la página
+  window.addEventListener('DOMContentLoaded', loadInventory);
+
+</script>
+{% endblock %}
+</body>
+</html>

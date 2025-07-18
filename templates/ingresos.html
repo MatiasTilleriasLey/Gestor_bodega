@@ -1,0 +1,203 @@
+{% include 'header.html' %}
+<body>
+{% include 'nav.html' %}
+{% block content %}
+<div class="container mt-4" style="max-width: 800px;">
+  <h2>Registrar Ingresos Múltiples</h2>
+  <div id="alert-placeholder"></div>
+
+  <form id="formIngresoMulti" onsubmit="return submitIngresoMulti();">
+    <table class="table table-bordered" id="tablaIngreso">
+      <thead>
+        <tr>
+          <th>Producto</th>
+          <th>Marca</th>
+          <th>Cantidad</th>
+          <th style="width:1%"></th>
+        </tr>
+      </thead>
+      <tbody>
+        <!-- Primera fila de base -->
+        <tr class="fila-producto">
+          <td>
+            <input list="productos_suggest_0" class="form-control input-name" />
+            <datalist id="productos_suggest_0"></datalist>
+          </td>
+          <td><input type="text" class="form-control input-brand" /></td>
+          <td><input type="number" class="form-control input-qty" min="1" value="1" /></td>
+          <td>
+            <button type="button" class="btn btn-sm btn-danger btn-remove" onclick="removeRow(this)">
+              &minus;
+            </button>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+
+    <button type="button" class="btn btn-secondary mb-3" onclick="addRow()">
+      + Agregar fila
+    </button>
+
+    <br/>
+    <button type="submit" class="btn btn-primary">Registrar Todos</button>
+  </form>
+</div>
+
+<!-- Template oculto para clonar filas -->
+<template id="templateFila">
+  <tr class="fila-producto">
+    <td>
+      <input list="" class="form-control input-name" />
+      <datalist></datalist>
+    </td>
+    <td><input type="text" class="form-control input-brand" /></td>
+    <td><input type="number" class="form-control input-qty" min="1" value="1" /></td>
+    <td>
+      <button type="button" class="btn btn-sm btn-danger btn-remove" onclick="removeRow(this)">
+        &minus;
+      </button>
+    </td>
+  </tr>
+</template>
+{% endblock %}
+{% block scripts %}
+<script>
+  // Counter para IDs únicos del datalist
+  let rowCount = 1;
+
+  /**
+   * Engancha listeners de autocomplete y selección automática de marca
+   * @param {HTMLInputElement} inputEl   campo de nombre
+   * @param {HTMLDataListElement} dl      su <datalist>
+   * @param {HTMLInputElement} brandEl   campo de marca
+   */
+  function attachSuggestionListeners(inputEl, dl, brandEl) {
+    // Mapa de sugerencias: name → brand
+    const suggestionMap = {};
+
+    // Al teclear, traemos sugerencias y actualizamos map
+    inputEl.addEventListener('input', () => {
+      const q = inputEl.value.trim();
+      if (q.length < 2) {
+        dl.innerHTML = '';
+        Object.keys(suggestionMap).forEach(k => delete suggestionMap[k]);
+        return;
+      }
+      fetch(`/api/productos/suggest?q=${encodeURIComponent(q)}`)
+        .then(res => res.json())
+        .then(list => {
+          dl.innerHTML = '';
+          Object.keys(suggestionMap).forEach(k => delete suggestionMap[k]);
+          list.forEach(p => {
+            // guardamos sólo el nombre como valor, y la marca en el map
+            suggestionMap[p.name] = p.brand;
+            const opt = document.createElement('option');
+            opt.value = p.name;
+            dl.appendChild(opt);
+          });
+          // si el valor actual coincide con una sugerencia, auto-completa la marca
+          const br = suggestionMap[inputEl.value];
+          if (br) brandEl.value = br;
+        })
+        .catch(console.error);
+    });
+
+    // Cada vez que el usuario confirma un valor (teclea o pega),
+    // chequeamos si existe en el map y rellenamos la marca
+    inputEl.addEventListener('input', () => {
+      const br = suggestionMap[inputEl.value];
+      if (br) brandEl.value = br;
+    });
+  }
+
+  // Añadir una nueva fila clonando el template
+  function addRow() {
+    const tpl   = document.getElementById('templateFila');
+    const clone = tpl.content.cloneNode(true);
+    const tr    = clone.querySelector('tr');
+
+    const idx        = rowCount++;
+    const inputName  = tr.querySelector('.input-name');
+    const dataList   = tr.querySelector('datalist');
+    const inputBrand = tr.querySelector('.input-brand');
+
+    inputName.setAttribute('list', `productos_suggest_${idx}`);
+    dataList.id = `productos_suggest_${idx}`;
+
+    attachSuggestionListeners(inputName, dataList, inputBrand);
+
+    document.querySelector('#tablaIngreso tbody').appendChild(tr);
+  }
+
+  // Eliminar una fila (mantiene al menos una)
+  function removeRow(btn) {
+    const tbody = document.querySelector('#tablaIngreso tbody');
+    if (tbody.children.length > 1) {
+      btn.closest('tr').remove();
+    }
+  }
+
+  // Inicializar autocomplete en la primera fila
+  (function initFirstRow(){
+    const firstRow   = document.querySelector('#tablaIngreso tbody tr');
+    const inputName  = firstRow.querySelector('.input-name');
+    const dataList   = firstRow.querySelector('datalist');
+    const inputBrand = firstRow.querySelector('.input-brand');
+    inputName.setAttribute('list', `productos_suggest_0`);
+    dataList.id = `productos_suggest_0`;
+    attachSuggestionListeners(inputName, dataList, inputBrand);
+  })();
+
+  // Mostrar alert de feedback
+  function showAlert(type, message) {
+    document.getElementById('alert-placeholder').innerHTML = `
+      <div class="alert alert-${type} alert-dismissible fade show" role="alert">
+        ${message}
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+      </div>`;
+  }
+
+  // Recolectar filas y enviar array JSON
+  function submitIngresoMulti() {
+    const rows = document.querySelectorAll('.fila-producto');
+    const payloadItems = [];
+
+    for (const tr of rows) {
+      const name  = tr.querySelector('.input-name').value.trim();
+      const brand = tr.querySelector('.input-brand').value.trim();
+      const qty   = parseInt(tr.querySelector('.input-qty').value, 10);
+      if (!name || !brand || isNaN(qty) || qty < 1) {
+        showAlert('warning', 'Revisa que todos los campos estén completos y cantidad ≥ 1.');
+        return false;
+      }
+      payloadItems.push({ name, brand, quantity: qty });
+    }
+
+    fetch('/ingresos/nuevo', {
+      method: 'POST',
+      headers: { 'Content-Type':'application/json' },
+      body: JSON.stringify({ items: payloadItems })
+    })
+    .then(r => r.json().then(body => ({ status: r.status, body })))
+    .then(({ status, body }) => {
+      if (status >= 200 && status < 300) {
+        showAlert('success', body.message || 'Ingresos registrados correctamente.');
+        // Reset: una sola fila limpia
+        document.querySelector('#tablaIngreso tbody').innerHTML = '';
+        rowCount = 0;
+        addRow();
+      } else {
+        showAlert('danger', body.error || 'Error al registrar ingresos.');
+      }
+    })
+    .catch(() => {
+      showAlert('danger', 'Error de red. Intenta de nuevo.');
+    });
+
+    return false; // evitar recarga de página
+  }
+</script>
+{% endblock %}
+
+</body>
+</html>

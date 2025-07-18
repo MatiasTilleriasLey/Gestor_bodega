@@ -1,0 +1,112 @@
+{% include 'header.html' %}
+<body>
+{% include 'nav.html' %}
+{% block content %}
+<div class="container mt-4">
+  <h2>Logs de Actividad</h2>
+
+  <!-- filtros -->
+  <div class="row g-2 mb-3 align-items-end">
+    <div class="col-auto">
+      <label class="form-label">Usuario</label>
+      <input type="text" id="filterUser" class="form-control" placeholder="usuario">
+    </div>
+    <div class="col-auto">
+      <label class="form-label">Acción</label>
+      <input type="text" id="filterAction" class="form-control" placeholder="action">
+    </div>
+    <div class="col-auto">
+      <label class="form-label">Tabla</label>
+      <input type="text" id="filterTable" class="form-control" placeholder="tabla">
+    </div>
+    <div class="col-auto">
+      <label class="form-label">Desde</label>
+      <input type="date" id="filterStart" class="form-control">
+    </div>
+    <div class="col-auto">
+      <label class="form-label">Hasta</label>
+      <input type="date" id="filterEnd" class="form-control">
+    </div>
+  </div>
+
+  <table class="table table-sm table-hover" id="logsTable">
+    <thead>
+      <tr>
+        <th>ID</th><th>Usuario</th><th>Acción</th><th>Tabla</th>
+        <th>Target ID</th><th>Detalles</th><th>Fecha / Hora</th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  // referencias a filtros
+  const fUser   = document.getElementById('filterUser');
+  const fAction = document.getElementById('filterAction');
+  const fTable  = document.getElementById('filterTable');
+  const fStart  = document.getElementById('filterStart');
+  const fEnd    = document.getElementById('filterEnd');
+
+  // datos en memoria
+  let allLogs = [];
+
+  // carga inicial
+  function loadLogs() {
+    fetch('/api/logs')
+      .then(r => r.json())
+      .then(data => {
+        allLogs = data;
+        applyFilters();
+      })
+      .catch(console.error);
+  }
+
+  // aplica filtros y renderiza
+  function applyFilters() {
+    const u = fUser.value.trim().toLowerCase();
+    const a = fAction.value.trim().toLowerCase();
+    const t = fTable.value.trim().toLowerCase();
+    const s = fStart.value;
+    const e = fEnd.value;
+
+    const filtered = allLogs.filter(log => {
+      if (u && !log.user.toLowerCase().includes(u)) return false;
+      if (a && !log.action.toLowerCase().includes(a)) return false;
+      if (t && !log.table.toLowerCase().includes(t)) return false;
+      // convertir "DD/MM/YYYY HH:MM:SS" ➞ "YYYY-MM-DD"
+      const datePart = log.created_at.split(' ')[0];
+      const ymd = datePart.split('/').reverse().join('-');
+      if (s && ymd < s) return false;
+      if (e && ymd > e) return false;
+      return true;
+    });
+
+    const tbody = document.querySelector('#logsTable tbody');
+    tbody.innerHTML = '';
+    filtered.forEach(log => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>${log.id}</td>
+        <td>${log.user}</td>
+        <td>${log.action}</td>
+        <td>${log.table}</td>
+        <td>${log.target_id ?? ''}</td>
+        <td>${log.details ?? ''}</td>
+        <td>${log.created_at}</td>`;
+      tbody.appendChild(tr);
+    });
+  }
+
+  // listeners en tiempo real
+  [fUser, fAction, fTable].forEach(el => el.addEventListener('input', applyFilters));
+  [fStart, fEnd].forEach(el => el.addEventListener('change', applyFilters));
+
+  document.addEventListener('DOMContentLoaded', loadLogs);
+</script>
+{% endblock %}
+
+</body>
+</html>

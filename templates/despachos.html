@@ -1,0 +1,263 @@
+{% include 'header.html' %}
+<body>
+{% include 'nav.html' %}
+{% block content %}
+<div class="container mt-4" style="max-width:800px;">
+  <h2>Registrar Despacho</h2>
+  <div id="alert-placeholder"></div>
+
+  <form id="formDespachos" onsubmit="return submitDespachos();">
+    <!-- Campo cliente -->
+    <div class="mb-3">
+      <label class="form-label">Cliente</label>
+      <input list="clients_suggest" class="form-control" id="inputClient">
+      <datalist id="clients_suggest"></datalist>
+    </div>
+
+    <!-- Campo OC opcional, oculto por defecto -->
+    <div class="mb-3" id="wrapOrderNumber" style="display:none;">
+      <label class="form-label">Orden de Compra</label>
+      <input type="text" class="form-control" id="inputOrderNumber" disabled placeholder="Ej: OC-2025-001">
+    </div>
+
+    <!-- Tabla de líneas de despacho -->
+    <table class="table table-bordered" id="tablaDespachos">
+      <thead>
+        <tr>
+          <th>Producto</th>
+          <th>Marca</th>
+          <th>Cantidad</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr class="fila-producto">
+          <td>
+            <input list="prod_suggest_0" class="form-control input-name">
+            <datalist id="prod_suggest_0"></datalist>
+          </td>
+          <td><input type="text" class="form-control input-brand"></td>
+          <td><input type="number" class="form-control input-qty" min="1" value="1"></td>
+          <td><button type="button" class="btn btn-sm btn-danger" onclick="removeRow(this)">−</button></td>
+        </tr>
+      </tbody>
+    </table>
+
+    <button type="button" class="btn btn-secondary mb-3" onclick="addRow()">+ Agregar fila</button>
+    <br>
+    <button type="submit" class="btn btn-primary">Enviar Despacho</button>
+  </form>
+</div>
+
+<template id="templateFila">
+  <tr class="fila-producto">
+    <td>
+      <input list="" class="form-control input-name">
+      <datalist></datalist>
+    </td>
+    <td><input type="text" class="form-control input-brand"></td>
+    <td><input type="number" class="form-control input-qty" min="1" value="1"></td>
+    <td><button type="button" class="btn btn-sm btn-danger" onclick="removeRow(this)">−</button></td>
+  </tr>
+</template>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  // Referencias globales
+  const clientInput = document.getElementById('inputClient');
+
+  document.addEventListener('DOMContentLoaded', () => {
+    const params = new URLSearchParams(window.location.search);
+    const cli   = params.get('client');
+    const ord   = params.get('order_number');
+
+    // Rellenar cliente y disparar autocomplete
+    if (cli) {
+      clientInput.value = cli;
+      clientInput.dispatchEvent(new Event('input'));
+    }
+
+    // Mostrar y rellenar campo OC solo si viene en la URL
+    const wrap = document.getElementById('wrapOrderNumber');
+    if (ord) {
+      wrap.style.display = '';
+      document.getElementById('inputOrderNumber').value = ord;
+      loadOrderSummary(ord);
+    }
+
+    initClientAutocomplete();
+    initProductRows();
+  });
+
+  // 1) Autocomplete clientes
+  function initClientAutocomplete() {
+    const clientDList = document.getElementById('clients_suggest');
+    clientInput.addEventListener('input', () => {
+      const q = clientInput.value.trim();
+      clientDList.innerHTML = '';
+      if (q.length < 2) return;
+      fetch(`/api/clients/suggest?q=${encodeURIComponent(q)}`)
+        .then(r => r.json())
+        .then(list => {
+          clientDList.innerHTML = '';
+          list.forEach(c => {
+            const opt = document.createElement('option');
+            opt.value = c.name;
+            clientDList.appendChild(opt);
+          });
+        })
+        .catch(console.error);
+    });
+  }
+
+  // 2) Carga y muestra resumen de la OC
+  function loadOrderSummary(orderNumber) {
+    fetch(`/api/ordenes/${encodeURIComponent(orderNumber)}/detalle`)
+      .then(r => r.json())
+      .then(data => {
+        const container = document.createElement('div');
+        container.innerHTML = `
+          <h5>Resumen OC ${data.order_number}</h5>
+          <table class="table table-sm table-bordered mb-4">
+            <thead>
+              <tr>
+                <th>Producto</th><th>Marca</th>
+                <th>Solicitado</th><th>Despachado</th><th>Pendiente</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${data.items.map(it => `
+                <tr>
+                  <td>${it.product}</td>
+                  <td>${it.brand}</td>
+                  <td>${it.solicitado}</td>
+                  <td>${it.despachado}</td>
+                  <td>${it.pendiente}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>`;
+        const form = document.getElementById('formDespachos');
+        form.parentNode.insertBefore(container, form);
+      })
+      .catch(console.error);
+  }
+
+  // 3) Inicialización de filas de producto
+  let rowCount = 1;
+  function initProductRows() {
+    setupRow(document.querySelector('#tablaDespachos tbody tr'), 0);
+    document.querySelector('button[onclick="addRow()"]').addEventListener('click', addRow);
+  }
+
+  function setupRow(tr, idx) {
+    const nameInput  = tr.querySelector('.input-name');
+    const dl         = tr.querySelector('datalist');
+    const brandInput = tr.querySelector('.input-brand');
+    nameInput.setAttribute('list', `prod_suggest_${idx}`);
+    dl.id = `prod_suggest_${idx}`;
+    const suggestionMap = {};
+    nameInput.addEventListener('input', () => {
+      const q = nameInput.value.trim();
+      if (q.length < 2) {
+        dl.innerHTML = '';
+        return;
+      }
+      fetch(`/api/productos/suggest?q=${encodeURIComponent(q)}`)
+        .then(r => r.json())
+        .then(list => {
+          dl.innerHTML = '';
+          Object.keys(suggestionMap).forEach(k => delete suggestionMap[k]);
+          list.forEach(p => {
+            suggestionMap[p.name] = p.brand;
+            const opt = document.createElement('option');
+            opt.value = p.name;
+            dl.appendChild(opt);
+          });
+        })
+        .catch(console.error);
+      setTimeout(() => {
+        const br = suggestionMap[nameInput.value];
+        if (br) brandInput.value = br;
+      }, 100);
+    });
+  }
+
+  function addRow() {
+    const tpl   = document.getElementById('templateFila');
+    const clone = tpl.content.cloneNode(true);
+    const tr    = clone.querySelector('tr');
+    setupRow(tr, rowCount++);
+    document.querySelector('#tablaDespachos tbody').appendChild(tr);
+  }
+
+  function removeRow(btn) {
+    const tbody = document.querySelector('#tablaDespachos tbody');
+    if (tbody.children.length > 1) {
+      btn.closest('tr').remove();
+    }
+  }
+
+  // 4) Feedback
+  function showAlert(type, msg) {
+    document.getElementById('alert-placeholder').innerHTML = `
+      <div class="alert alert-${type} alert-dismissible fade show" role="alert">
+        ${msg}
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+      </div>`;
+  }
+
+  // 5) Envío del formulario
+  function submitDespachos() {
+    const client      = clientInput.value.trim();
+    const orderNumber = document.getElementById('inputOrderNumber').value.trim() || null;
+    if (!client) {
+      showAlert('warning', 'Debes indicar el cliente');
+      return false;
+    }
+    const items = [];
+    let valid = true;
+    document.querySelectorAll('.fila-producto').forEach(tr => {
+      const name  = tr.querySelector('.input-name').value.trim();
+      const brand = tr.querySelector('.input-brand').value.trim();
+      const qty   = parseInt(tr.querySelector('.input-qty').value, 10);
+      if (!name || !brand || isNaN(qty) || qty < 1) {
+        showAlert('warning', 'Revisa todos los campos de productos');
+        valid = false;
+        return;
+      }
+      items.push({ name, brand, quantity: qty });
+    });
+    if (!valid) return false;
+
+    const payload = { client, items, order_number: orderNumber };
+    fetch('/despachos/nuevo', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(payload)
+    })
+    .then(r => r.json().then(body => ({status:r.status, body})))
+    .then(({status, body}) => {
+      if (status === 201) {
+        let msg = body.message;
+        if (body.warnings?.length) {
+          msg += '<br><small class="text-warning">' + body.warnings.join('<br>') + '</small>';
+        }
+        showAlert('success', msg);
+        clientInput.value = '';
+        document.getElementById('inputOrderNumber').value = '';
+        document.querySelector('#tablaDespachos tbody').innerHTML = '';
+        rowCount = 1;
+        addRow();
+      } else {
+        showAlert('danger', body.error || 'Error al procesar despacho');
+      }
+    })
+    .catch(()=>showAlert('danger','Error de red'));
+
+    return false;
+  }
+</script>
+{% endblock %}
+</html>

@@ -1,0 +1,91 @@
+
+    <nav class="navbar navbar-expand-lg bg-body-tertiary">
+      <div class="container-fluid">
+        <a class="navbar-brand" href="#">La Bodega</a>
+        <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
+          <span class="navbar-toggler-icon"></span>
+        </button>
+        <div class="collapse navbar-collapse" id="navbarNav">
+          <ul class="navbar-nav me-auto mb-2 mb-lg-0">
+            <li class="nav-item">
+              <a class="nav-link"
+                aria-current="page" 
+                href="/dashboard">
+                <i class="bi bi-house"></i>
+                Home
+              </a>
+            </li>
+             {% if is_Admin %}
+            <li class="nav-item">
+              <a class="nav-link" 
+                href="/usuarios">
+                <i class="bi bi-people"></i> 
+                Usuarios
+              </a>
+            </li>
+            <!--li class="nav-item">
+              <a class="nav-link" 
+                href="/configuracion">
+                <i class="bi bi-gear"></i> 
+                Configuracion
+              </a>
+            </li-->
+            <li class="nav-item">
+              <a class="nav-link" 
+                href="/logs">
+                <i class="bi bi-person-lines-fill"></i>
+                Logs
+              </a>
+            </li>
+
+            {% endif %}
+            <li class="nav-item">
+              <a class="nav-link" 
+                href="/inventario">
+                <i class="bi bi-card-checklist">
+                </i> 
+                Inventario
+              </a>
+            </li>
+            <li class="nav-item dropdown">
+              <button 
+                class="btn dropdown-toggle" 
+                data-bs-toggle="dropdown" 
+                aria-expanded="false">
+                <i class="bi bi-truck"></i> 
+                Despachos
+              </button>
+              <ul class="dropdown-menu">
+                <li><a class="dropdown-item" href="/ordenes">Ordenes de Compra</a></li>
+                <li><a class="dropdown-item" href="/despachos/historico">Historico</a></li>
+                <li><a class="dropdown-item" href="/despachos/nuevo">Nuevo</a></li>
+              </ul>
+            </li>
+            <li class="nav-item dropdown">
+              <button 
+                class="btn dropdown-toggle" 
+                data-bs-toggle="dropdown" 
+                aria-expanded="false">
+                <i class="bi bi-truck"></i> 
+                Ingresos
+              </button>
+              <ul class="dropdown-menu">
+                <li><a class="dropdown-item" href="/ingresos/historicos">Historico</a></li>
+                <li><a class="dropdown-item" href="/ingresos/nuevo">Nuevo</a></li>
+              </ul>
+            </li>
+          </ul>
+          <li class="nav-item dropdown">
+          <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+            Bienvenido {{name}}
+          </a>
+          <ul class="dropdown-menu">
+            <li><a class="dropdown-item" href="/perfil">Perfil</a></li>
+            <li><a class="dropdown-item" href="/api/logout">Cerrar Sesion</a></li>
+          </ul>
+        </li>
+          <!--span class="navbar-text">
+          </span-->
+        </div>
+      </div>
+    </nav>

@@ -1,0 +1,129 @@
+{% include 'header.html' %}
+<body>
+{% include 'nav.html' %}
+{% block content %}
+<div class="container mt-4">
+  <h2>Histórico de Ingresos</h2>
+  <div class="row mb-3 g-2 align-items-end">
+    <div class="col-auto">
+      <label for="startDate" class="form-label">Desde</label>
+      <input type="date" id="startDate" class="form-control">
+    </div>
+    <div class="col-auto">
+      <label for="endDate" class="form-label">Hasta</label>
+      <input type="date" id="endDate" class="form-control">
+    </div>
+    <div class="col-auto">
+      <button class="btn btn-primary" id="btnFilter">Filtrar</button>
+      <button class="btn btn-secondary" id="btnClear">Limpiar</button>
+    </div>
+  </div>
+  <table class="table table-hover" id="histTable">
+    <thead>
+      <tr>
+        <th>Ingreso #</th>
+        <th>Operador</th>
+        <th>Fecha / Hora</th>
+        <th>Detalles</th>
+        <th>Editar</th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+  // Elementos de filtrado
+  const startInput = document.getElementById('startDate');
+  const endInput   = document.getElementById('endDate');
+  const btnFilter  = document.getElementById('btnFilter');
+  const btnClear   = document.getElementById('btnClear');
+
+  // Carga inicial
+  document.addEventListener('DOMContentLoaded', () => {
+    loadHistorico();
+  });
+
+  btnFilter.addEventListener('click', () => {
+    loadHistorico(startInput.value, endInput.value);
+  });
+
+  btnClear.addEventListener('click', () => {
+    startInput.value = '';
+    endInput.value   = '';
+    loadHistorico();
+  });
+
+  /**
+   * Carga el histórico de ingresos, opcionalmente filtrado por fechas.
+   * @param {string} start YYYY-MM-DD (opcional)
+   * @param {string} end   YYYY-MM-DD (opcional)
+   */
+  function loadHistorico(start, end) {
+    let url = '/api/ingresos/historico';
+    const params = [];
+    if (start) params.push(`start=${encodeURIComponent(start)}`);
+    if (end)   params.push(`end=${encodeURIComponent(end)}`);
+    if (params.length) url += '?' + params.join('&');
+
+    fetch(url)
+      .then(res => res.json())
+      .then(batches => {
+        const tbody = document.querySelector('#histTable tbody');
+        tbody.innerHTML = '';
+
+        batches.forEach(b => {
+          // Fila principal del batch
+          const tr = document.createElement('tr');
+          tr.innerHTML = `
+            <td>${b.batch_id}</td>
+            <td>${b.user.username}</td>
+            <td>${new Date(b.created_at).toLocaleString()}</td>
+            <td>
+              <button class="btn btn-sm btn-outline-info"
+                      onclick="toggleDetails(${b.batch_id}, this)">
+                Ver ítems
+              </button>
+            </td>
+            <td>
+              <a href="/ingresos/editar/${b.batch_id}"
+                 class="btn btn-sm btn-warning">
+                <i class="bi bi-pencil-square"></i> Editar
+              </a>
+            </td>`;
+          tbody.appendChild(tr);
+
+          // Fila oculta con los detalles
+          const det = document.createElement('tr');
+          det.id = 'details-' + b.batch_id;
+          det.classList.add('d-none');
+          det.innerHTML = `
+            <td colspan="5">
+              <ul class="list-group">
+                ${b.items.map(i => `
+                  <li class="list-group-item">
+                    [${i.quantity}] ${i.product.name} — ${i.product.brand}
+                  </li>`).join('')}
+              </ul>
+            </td>`;
+          tbody.appendChild(det);
+        });
+      })
+      .catch(err => {
+        console.error('Error cargando histórico:', err);
+      });
+  }
+
+  function toggleDetails(batchId, btn) {
+    const detRow = document.getElementById('details-' + batchId);
+    detRow.classList.toggle('d-none');
+    btn.textContent = detRow.classList.contains('d-none')
+      ? 'Ver ítems'
+      : 'Ocultar ítems';
+  }
+</script>
+{% endblock %}
+
+</body>
+</html>

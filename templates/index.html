@@ -1,0 +1,34 @@
+{% include 'header.html' %}
+<body>
+  <div class="container">
+    <br>
+    <div class="alert alert-danger" role="alert" style="display: none" id="error">A simple danger alert—check it out!</div>
+    <center>
+      <h1>Sistema de bodega</h1>
+    </center>
+    <div class="card">
+      <div class="card-header"><center> Login</center></div>
+      <div class="card-body">
+        <div class="input-group flex-nowrap">
+          <span class="input-group-text" id="addon-wrapping">
+            <i class="bi bi-person-circle"></i>
+          </span>
+          <input type="text" class="form-control" placeholder="Username" id="username" required>
+        </div>
+        <br>
+        <div class="input-group flex-nowrap">
+          <span class="input-group-text" id="addon-wrapping">
+            <i class="bi bi-key-fill"></i>
+          </span>
+          <input type="password" class="form-control" placeholder="Password" id="password" required>
+        </div>
+        <br>
+        <div class="d-grid gap-2">
+          <button type="button" class="btn btn-primary" onclick="login()">Login</button>
+        </div>  
+      </div>
+    </div>
+  </div>
+</body>
+<script src="{{ url_for('static', filename='main.js') }}"></script>
+</html>

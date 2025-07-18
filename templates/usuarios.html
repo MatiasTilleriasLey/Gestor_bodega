@@ -1,0 +1,254 @@
+{% include 'header.html' %}
+<body>
+  {% include 'nav.html' %} 
+  <div class="container mt-4">
+    <h2>Usuarios Registrados</h2>
+    <button type="button" class="btn btn-secondary mb-3" onclick="crear_usuario_modal()">
+      <i class="bi bi-person-plus"></i> Crear Usuario
+    </button>
+    <table class="table  table-hover">
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>Nombre</th>
+          <th>Usuario</th>
+          <th>Administrador</th>
+          <th>Editar Usuario</th>
+          <th>Eliminar Usuario</th>
+          <th>Restablecer Contraseña</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for u in users %}
+        <tr>
+          <td>{{ u.id }}</td>
+          <td>{{ u.name }}</td>
+          <td>{{ u.username }}</td>
+          <td>
+            {% if u.is_Admin %}
+              <span class="badge bg-success">Sí</span>
+            {% else %}
+              <span class="badge bg-secondary">No</span>
+            {% endif %}
+          </td>
+          <td>
+            <a href="/usuarios/editar/{{ u.id }}">
+              <button class="btn btn-primary">
+                <i class="bi bi-person-gear"></i> Editar
+              </button>
+            </a>
+          </td>
+          <td>
+            <button
+              class="btn btn-danger"
+              onclick="eliminar_usuario_modal({{ u.id }}, '{{ u.username }}', '{{ u.name }}')">
+              <i class="bi bi-person-dash"></i> Eliminar
+            </button>
+          </td>
+          <td>
+            <button
+              class="btn btn-warning"
+              onclick="reset_password_modal({{ u.id }}, '{{ u.username }}')">
+              <i class="bi bi-shield-lock"></i> Restablecer
+            </button>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <script>
+    // — Crear Usuario Modal —
+    function crear_usuario_modal() {
+      const CrearUsuarioModal = document.createElement('div');
+      CrearUsuarioModal.innerHTML = `
+      <div class="modal fade" tabindex="-1" id="CrearUsuarioModal">
+        <div class="modal-dialog modal-dialog-centered">
+          <div class="modal-content bg-dark text-white">
+            <div class="modal-header">
+              <h5 class="modal-title">Crear Usuario</h5>
+              <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+              <form id="formCrearUsuario">
+                <div class="row mb-3">
+                  <label for="inputName" class="col-sm-3 col-form-label">Nombre</label>
+                  <div class="col-sm-9">
+                    <input type="text" class="form-control" id="inputName" name="name">
+                  </div>
+                </div>
+                <div class="row mb-3">
+                  <label for="inputUsername" class="col-sm-3 col-form-label">Usuario</label>
+                  <div class="col-sm-9">
+                    <input type="text" class="form-control" id="inputUsername" name="username">
+                  </div>
+                </div>
+                <div class="row mb-3">
+                  <label for="inputEmail" class="col-sm-3 col-form-label">Email</label>
+                  <div class="col-sm-9">
+                    <input type="email" class="form-control" id="inputEmail" name="email">
+                  </div>
+                </div>
+                <div class="form-check form-switch mb-3">
+                  <input class="form-check-input" type="checkbox" id="inputIsAdmin" name="is_admin">
+                  <label class="form-check-label" for="inputIsAdmin">Administrador</label>
+                </div>
+              </form>
+            </div>
+            <div class="modal-footer">
+              <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+                Cancelar
+              </button>
+              <button type="button" class="btn btn-primary" onclick="submitCrearUsuario()">
+                Guardar
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>`;
+      document.body.appendChild(CrearUsuarioModal);
+      const jsModalEl = document.getElementById('CrearUsuarioModal');
+      const jsModal   = new bootstrap.Modal(jsModalEl);
+      jsModal.show();
+      jsModalEl.addEventListener('hidden.bs.modal', () => jsModalEl.remove());
+    }
+
+    function submitCrearUsuario() {
+      const name     = document.getElementById("inputName").value;
+      const username = document.getElementById("inputUsername").value;
+      const email    = document.getElementById("inputEmail").value;
+      const is_admin = document.getElementById("inputIsAdmin").checked;
+
+      // Contraseña genérica por defecto
+      const defaultPassword = "changeme123";
+
+      const payload = {
+        name,
+        username,
+        email,
+        password: defaultPassword,
+        is_Admin: is_admin
+      };
+
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', '/usuarios/crear', true);
+      xhr.setRequestHeader('Content-Type', 'application/json');
+      xhr.onload = () => {
+        if (xhr.status === 200 || xhr.status === 201) {
+          location.reload();
+        } else {
+          console.error(`Error ${xhr.status}: ${xhr.statusText}`);
+        }
+      };
+      xhr.onerror = () => console.error('Error de red o CORS');
+      xhr.send(JSON.stringify(payload));
+    }
+
+    // — Eliminar Usuario Modal —
+    function eliminar_usuario_modal(userId, userUsername, userName) {
+      const modalContainer = document.createElement('div');
+      modalContainer.innerHTML = `
+      <div class="modal fade" tabindex="-1" id="jsModal">
+        <div class="modal-dialog modal-dialog-centered">
+          <div class="modal-content bg-dark text-white">
+            <div class="modal-header">
+              <h5 class="modal-title">Confirmar eliminación</h5>
+              <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+              ¿Estás seguro de que quieres eliminar al usuario
+              <strong>${userUsername}/${userName}</strong> (ID: ${userId})?
+            </div>
+            <div class="modal-footer">
+              <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+              <button type="button" class="btn btn-danger" onclick="eliminar_usuario(${userId})">Eliminar</button>
+            </div>
+          </div>
+        </div>
+      </div>`;
+      document.body.appendChild(modalContainer);
+      const jsModalEl = document.getElementById('jsModal');
+      const jsModal   = new bootstrap.Modal(jsModalEl);
+      jsModal.show();
+      jsModalEl.addEventListener('hidden.bs.modal', () => jsModalEl.remove());
+    }
+
+    function eliminar_usuario(id) {
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', '/usuarios/eliminar/' + id, true);
+      xhr.onreadystatechange = function() {
+        if (xhr.readyState === XMLHttpRequest.DONE) {
+          if (xhr.status === 200) {
+            location.reload(true);
+          } else {
+            console.error('Error HTTP', xhr.status);
+          }
+        }
+      };
+      xhr.send();
+    }
+
+    // — Restablecer Contraseña Modal —
+    function reset_password_modal(userId, username) {
+      const modalHtml = `
+      <div class="modal fade" tabindex="-1" id="resetPwdModal">
+        <div class="modal-dialog modal-dialog-centered">
+          <div class="modal-content border-warning">
+            <div class="modal-header bg-warning text-dark">
+              <h5 class="modal-title">
+                <i class="bi bi-exclamation-triangle-fill"></i>
+                Confirmar restablecimiento
+              </h5>
+              <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+              <p>Vas a restablecer la contraseña del usuario
+              <strong>${username}</strong> a <code>changeme123</code>.</p>
+              <p class="text-danger">Esta acción es irreversible.</p>
+            </div>
+            <div class="modal-footer">
+              <button type="button"
+                      class="btn btn-secondary"
+                      data-bs-dismiss="modal">
+                Cancelar
+              </button>
+              <button type="button"
+                      class="btn btn-warning"
+                      onclick="confirm_reset_password(${userId})">
+                Confirmar
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>`;
+      document.body.insertAdjacentHTML('beforeend', modalHtml);
+      const modalEl = document.getElementById('resetPwdModal');
+      const bsModal = new bootstrap.Modal(modalEl);
+      bsModal.show();
+      modalEl.addEventListener('hidden.bs.modal', () => modalEl.remove());
+    }
+
+    function confirm_reset_password(userId) {
+      fetch(`/usuarios/editar/password/${userId}`, {
+        method: 'POST'
+      })
+      .then(res => res.json().then(body => ({status: res.status, body})))
+      .then(({status, body}) => {
+        const modalEl = document.getElementById('resetPwdModal');
+        bootstrap.Modal.getInstance(modalEl).hide();
+        if (status === 200) {
+          alert(body.message);
+          location.reload();
+        } else {
+          alert(body.error || 'Error al restablecer contraseña');
+        }
+      })
+      .catch(() => {
+        alert('Error de red al restablecer contraseña');
+      });
+    }
+  </script>
+</body>
+</html>
+

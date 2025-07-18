@@ -1,0 +1,46 @@
+{% include 'header.html' %}
+<body>
+{% include 'nav.html' %}
+{% block content %}
+<div class="container mt-4">
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <h2>Órdenes de Compra</h2>
+    <a href="{{ url_for('ordenes_nuevo') }}" class="btn btn-primary">
+      <i class="bi bi-plus-circle"></i> Nueva Orden
+    </a>
+  </div>
+
+  <table class="table table-hover" id="ordersTable">
+    <thead>
+      <tr>
+        <th>Número</th>
+        <th>Cliente</th>
+        <th>Fecha</th>
+        <th>Estado</th>
+        <th>Acciones</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for o in orders %}
+      <tr>
+        <td>{{ o.number }}</td>
+        <td>{{ o.client }}</td>
+        <td>{{ o.created_at }}</td>
+        <td>
+          <span class="badge bg-{{ o.badge }}">{{ o.estado }}</span>
+        </td>
+        <td>
+          <a href="{{ url_for('orden_detalle', order_id=o.id) }}"
+             class="btn btn-sm btn-outline-info">
+            Ver detalle
+          </a>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}
+</body>
+</html>
+

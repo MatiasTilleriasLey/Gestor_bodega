@@ -1,0 +1,87 @@
+{% include 'header.html' %}
+<body>
+{% include 'nav.html' %}
+
+{% block content %}
+<div class="container mt-4" style="max-width:700px;">
+  <h2>Orden {{ order.number }}</h2>
+  <p>
+    <strong>Cliente:</strong> {{ order.client.name }}<br>
+    <strong>Fecha:</strong> {{ order.created_at.strftime('%d/%m/%Y %H:%M') }}
+  </p>
+
+  <table class="table table-bordered">
+    <thead>
+      <tr>
+        <th>Producto</th>
+        <th>Solicitado</th>
+        <th>Despachado</th>
+        <th>Pendiente</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for line in detail %}
+      <tr>
+        <td>{{ line.product }}</td>
+        <td>{{ line.solicitado }}</td>
+        <td>{{ line.despachado }}</td>
+        <td>
+          {% if line.pendiente > 0 %}
+            <span class="text-danger">{{ line.pendiente }}</span>
+          {% else %}
+            <span class="text-success">0</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <div class="btn-group mt-3">
+    <a
+      href="{{ url_for('ordenes_editar', order_id=order.id) }}"
+      class="btn btn-warning"
+    >
+      <i class="bi bi-pencil-square"></i> Editar Orden
+    </a>
+
+    <a
+      href="{{ url_for('nuevos_despachos') }}?client={{ order.client.name | urlencode }}&order_number={{ order.number | urlencode }}"
+      class="btn btn-primary"
+    >
+      <i class="bi bi-truck"></i> Crear Despacho
+    </a>
+
+    <a
+      href="{{ url_for('ordenes_listado') }}"
+      class="btn btn-secondary"
+    >
+      Volver
+    </a>
+  </div>
+  <hr class="my-4">
+
+<h3>Despachos asociados</h3>
+{% if dispatch_history %}
+  {% for d in dispatch_history %}
+    <div class="card mb-3 bg-dark text-white">
+      <div class="card-header">
+        Despacho #{{ d.batch_id }} por {{ d.user }}
+        <span class="float-end">{{ d.created.strftime('%d/%m/%Y %H:%M') }}</span>
+      </div>
+      <ul class="list-group list-group-flush bg-white text-dark">
+        {% for it in d['items'] %}
+        <li class="list-group-item">
+          [{{ it.qty }}] {{ it.product }} — {{ it.brand }}
+        </li>
+        {% endfor %}
+      </ul>
+    </div>
+  {% endfor %}
+{% else %}
+  <p class="text-muted">Aún no se han realizado despachos para esta orden.</p>
+{% endif %}
+</div>
+{% endblock %}
+</body>
+</html>

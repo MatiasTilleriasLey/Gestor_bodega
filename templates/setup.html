@@ -1,0 +1,82 @@
+{% include 'header.html' %}
+<body>
+  {% block content %}
+<div class="container mt-5" style="max-width: 500px;">
+  <h2 class="mb-4">Bienvenido a La Bodega</h2>
+  <p>Crea el primer usuario administrador:</p>
+  <div id="alert-placeholder"></div>
+  <form id="formSetup" onsubmit="return submitSetup();">
+    <div class="mb-3">
+      <label class="form-label">Nombre completo</label>
+      <input type="text" id="inputName" class="form-control">
+    </div>
+    <div class="mb-3">
+      <label class="form-label">Usuario</label>
+      <input type="text" id="inputUsername" class="form-control">
+    </div>
+    <div class="mb-3">
+      <label class="form-label">Email</label>
+      <input type="email" id="inputEmail" class="form-control">
+    </div>
+    <div class="mb-3">
+      <label class="form-label">Contraseña</label>
+      <input type="password" id="inputPassword" class="form-control">
+    </div>
+    <div class="mb-3">
+      <label class="form-label">Repetir Contraseña</label>
+      <input type="password" id="inputPassword2" class="form-control">
+    </div>
+    <button type="submit" class="btn btn-primary">Crear Administrador</button>
+  </form>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  function showAlert(type, msg) {
+    document.getElementById('alert-placeholder').innerHTML = `
+      <div class="alert alert-${type} alert-dismissible fade show" role="alert">
+        ${msg}
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+      </div>`;
+  }
+
+  function submitSetup() {
+    const name      = document.getElementById('inputName').value.trim();
+    const username  = document.getElementById('inputUsername').value.trim();
+    const email     = document.getElementById('inputEmail').value.trim();
+    const password  = document.getElementById('inputPassword').value;
+    const password2 = document.getElementById('inputPassword2').value;
+
+    // Validaciones front-end
+    if (!name || !username || !email || !password || !password2) {
+      showAlert('warning', 'Completa todos los campos.');
+      return false;
+    }
+    if (password !== password2) {
+      showAlert('warning', 'Las contraseñas no coinciden.');
+      return false;
+    }
+
+    fetch('/setup', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ name, username, email, password, password2 })
+    })
+    .then(res => res.json().then(body => ({status: res.status, body})))
+    .then(({status, body}) => {
+      if (status === 201) {
+        showAlert('success', body.message);
+        setTimeout(() => window.location.href = '/', 1000);
+      } else {
+        showAlert('danger', body.error);
+      }
+    })
+    .catch(() => showAlert('danger', 'Error de red.'));
+    return false;
+  }
+</script>
+{% endblock %}
+
+</body>
+</html>

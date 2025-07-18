@@ -1,0 +1,161 @@
+{% include 'header.html' %}
+<body>
+{% include 'nav.html' %}
+{% block content %}
+<div class="container mt-4">
+  <h2>Histórico de Despachos</h2>
+
+  <!-- FILTROS -->
+  <div class="row g-2 mb-3 align-items-end">
+    <div class="col-auto">
+      <label for="filterOperator" class="form-label">Operador</label>
+      <input type="text" id="filterOperator" class="form-control" placeholder="Nombre de usuario">
+    </div>
+    <div class="col-auto">
+      <label for="filterClient" class="form-label">Cliente</label>
+      <input type="text" id="filterClient" class="form-control" placeholder="Nombre de cliente">
+    </div>
+    <div class="col-auto">
+      <label for="filterStart" class="form-label">Desde</label>
+      <input type="date" id="filterStart" class="form-control">
+    </div>
+    <div class="col-auto">
+      <label for="filterEnd" class="form-label">Hasta</label>
+      <input type="date" id="filterEnd" class="form-control">
+    </div>
+    <div class="col-auto">
+      <button class="btn btn-primary" id="btnFilter">Filtrar</button>
+      <button class="btn btn-secondary" id="btnClear">Limpiar</button>
+    </div>
+  </div>
+
+  <table class="table table-hover" id="histDespTable">
+    <thead>
+      <tr>
+        <th>Despacho #</th>
+        <th>Cliente</th>
+        <th>Operador</th>
+        <th>Fecha / Hora</th>
+        <th>Detalles</th>
+        <th>Editar</th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+  // Inputs de filtro
+  const opInput    = document.getElementById('filterOperator');
+  const clInput    = document.getElementById('filterClient');
+  const startInput = document.getElementById('filterStart');
+  const endInput   = document.getElementById('filterEnd');
+
+  // Almacena los datos traídos del backend
+  let allBatches = [];
+
+  // 1) Carga inicial de datos
+  function loadHistoricoDespachos() {
+    fetch('/api/despachos/historico')
+      .then(res => res.json())
+      .then(batches => {
+        allBatches = batches;
+        applyFilters();
+      })
+      .catch(console.error);
+  }
+
+  // 2) Aplica todos los filtros al array y re-renderiza
+  function applyFilters() {
+    const op    = opInput.value.trim().toLowerCase();
+    const cl    = clInput.value.trim().toLowerCase();
+    const start = startInput.value; // YYYY-MM-DD
+    const end   = endInput.value;   // YYYY-MM-DD
+
+    const filtered = allBatches.filter(b => {
+      // filtro operador
+      if (op && !b.user.toLowerCase().includes(op)) return false;
+      // filtro cliente
+      if (cl && !b.client.toLowerCase().includes(cl)) return false;
+      // filtro fecha desde
+      if (start) {
+        const fecha = b.created_at.split(' ')[0].split('/').reverse().join('-');
+        if (fecha < start) return false;
+      }
+      // filtro fecha hasta
+      if (end) {
+        const fecha = b.created_at.split(' ')[0].split('/').reverse().join('-');
+        if (fecha > end) return false;
+      }
+      return true;
+    });
+
+    renderTable(filtered);
+  }
+
+  // 3) Renderiza la tabla dada la lista de batches
+  function renderTable(batches) {
+    const tbody = document.querySelector('#histDespTable tbody');
+    tbody.innerHTML = '';
+
+    batches.forEach(b => {
+      // fila principal
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>${b.batch_id}</td>
+        <td>${b.client}</td>
+        <td>${b.user}</td>
+        <td>${b.created_at}</td>
+        <td>
+          <button class="btn btn-sm btn-outline-info"
+                  onclick="toggleDetails(${b.batch_id}, this)">
+            Ver ítems
+          </button>
+        </td>
+        <td>
+          <a
+            href="/despachos/editar/${b.batch_id}"
+            class="btn btn-sm btn-warning"
+          >
+            <i class="bi bi-pencil-square"></i> Editar
+          </a>
+        </td>`;
+      tbody.appendChild(tr);
+
+      // fila de detalles oculta
+      const det = document.createElement('tr');
+      det.id = 'details-desp-' + b.batch_id;
+      det.classList.add('d-none');
+      det.innerHTML = `
+        <td colspan="5">
+          <ul class="list-group">
+            ${b.items.map(i => `
+              <li class="list-group-item">
+                [${i.quantity}] ${i.product} — ${i.brand}
+              </li>`).join('')}
+          </ul>
+        </td>`;
+      tbody.appendChild(det);
+    });
+  }
+
+  // 4) Toggle de detalles
+  function toggleDetails(batchId, btn) {
+    const det = document.getElementById('details-desp-' + batchId);
+    det.classList.toggle('d-none');
+    btn.textContent = det.classList.contains('d-none') ? 'Ver ítems' : 'Ocultar';
+  }
+
+  // 5) Event listeners de filtros
+  opInput.addEventListener('input', applyFilters);
+  clInput.addEventListener('input', applyFilters);
+  startInput.addEventListener('change', applyFilters);
+  endInput.addEventListener('change', applyFilters);
+
+  // Inicializar al cargar página
+  document.addEventListener('DOMContentLoaded', loadHistoricoDespachos);
+</script>
+{% endblock %}
+</body>
+</html>

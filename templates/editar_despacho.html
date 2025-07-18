@@ -1,0 +1,202 @@
+{% include 'header.html' %}
+<body>
+{% include 'nav.html' %}
+{% block content %}
+<div class="container mt-4" style="max-width:800px;">
+  <h2>Editar Despacho #{{ batch_id }}</h2>
+  <div id="alert-placeholder"></div>
+
+  <form id="formEditarDespacho" onsubmit="return submitEditarDespacho();">
+    <!-- Cliente -->
+    <div class="mb-3">
+      <label class="form-label">Cliente</label>
+      <input list="clients_suggest" id="inputClient" class="form-control" value="{{ client_name }}">
+      <datalist id="clients_suggest"></datalist>
+    </div>
+
+    <!-- Orden de Compra opcional -->
+    <div class="mb-3" id="wrapOrderNumber">
+      <label class="form-label">Orden de Compra</label>
+      <input type="text" id="inputOrderNumber" class="form-control"
+             {% if order_number %} value="{{ order_number }}" {% endif %}>
+    </div>
+
+    <!-- Tabla de líneas -->
+    <table class="table table-bordered" id="tablaDespachos">
+      <thead>
+        <tr>
+          <th>Producto</th><th>Marca</th><th>Cantidad</th><th></th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+
+    <button type="button" class="btn btn-secondary mb-3" onclick="addRow()">+ Agregar fila</button>
+    <br>
+    <button type="submit" class="btn btn-primary">Guardar Cambios</button>
+    <a href="{{ url_for('historico_despachos') }}" class="btn btn-secondary">Volver</a>
+  </form>
+</div>
+
+<template id="tplRow">
+  <tr class="fila-producto">
+    <td>
+      <input list="" class="form-control input-name">
+      <datalist></datalist>
+      <input type="hidden" class="input-entry-id">
+    </td>
+    <td><input type="text" class="form-control input-brand"></td>
+    <td><input type="number" class="form-control input-qty" min="1"></td>
+    <td><button type="button" class="btn btn-sm btn-danger" onclick="removeRow(this)">−</button></td>
+  </tr>
+</template>
+{% endblock %}
+{% block scripts %}
+<script>
+  const initialItems = {{ items|tojson }};
+  let rowCount = 0;
+
+  document.addEventListener('DOMContentLoaded', () => {
+    initClientAutocomplete();
+    // Poblar filas con datos existentes
+    initialItems.forEach(it => addRow(it));
+  });
+
+  function initClientAutocomplete() {
+    // Mismo código que en creación de despacho...
+    const clientInput = document.getElementById('inputClient');
+    const clientDList = document.getElementById('clients_suggest');
+    clientInput.addEventListener('input', () => {
+      const q = clientInput.value.trim();
+      clientDList.innerHTML = '';
+      if (q.length < 2) return;
+      fetch(`/api/clients/suggest?q=${encodeURIComponent(q)}`)
+        .then(r => r.json())
+        .then(list => {
+          clientDList.innerHTML = '';
+          list.forEach(c => {
+            const opt = document.createElement('option');
+            opt.value = c.name;
+            clientDList.appendChild(opt);
+          });
+        })
+        .catch(console.error);
+    });
+  }
+
+  function setupRow(tr, data) {
+    const idFld   = tr.querySelector('.input-entry-id');
+    const nameIn  = tr.querySelector('.input-name');
+    const dl      = tr.querySelector('datalist');
+    const brandIn = tr.querySelector('.input-brand');
+    const qtyIn   = tr.querySelector('.input-qty');
+
+    if (data) {
+      idFld.value   = data.entry_id;
+      nameIn.value  = data.name;
+      brandIn.value = data.brand;
+      qtyIn.value   = data.quantity;
+    }
+
+    const idx = rowCount++;
+    nameIn.setAttribute('list', `prod_suggest_${idx}`);
+    dl.id = `prod_suggest_${idx}`;
+
+    // Autocomplete de productos
+    const suggestionMap = {};
+    nameIn.addEventListener('input', () => {
+      const q = nameIn.value.trim();
+      if (q.length < 2) {
+        dl.innerHTML = '';
+        return;
+      }
+      fetch(`/api/productos/suggest?q=${encodeURIComponent(q)}`)
+        .then(r => r.json())
+        .then(list => {
+          dl.innerHTML = '';
+          Object.keys(suggestionMap).forEach(k => delete suggestionMap[k]);
+          list.forEach(p => {
+            suggestionMap[p.name] = p.brand;
+            const opt = document.createElement('option');
+            opt.value = p.name;
+            dl.appendChild(opt);
+          });
+        })
+        .catch(console.error);
+      setTimeout(() => {
+        const br = suggestionMap[nameIn.value];
+        if (br) brandIn.value = br;
+      }, 100);
+    });
+  }
+
+  function addRow(data = null) {
+    const tpl   = document.getElementById('tplRow');
+    const clone = tpl.content.cloneNode(true);
+    const tr    = clone.querySelector('tr');
+    setupRow(tr, data);
+    document.querySelector('#tablaDespachos tbody').appendChild(tr);
+  }
+
+  function removeRow(btn) {
+    const tb = document.querySelector('#tablaDespachos tbody');
+    if (tb.children.length > 1) btn.closest('tr').remove();
+  }
+
+  function showAlert(type, msg) {
+    document.getElementById('alert-placeholder').innerHTML = `
+      <div class="alert alert-${type} alert-dismissible fade show" role="alert">
+        ${msg}
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+      </div>`;
+  }
+
+  function submitEditarDespacho() {
+    const client      = document.getElementById('inputClient').value.trim();
+    const orderNumber = document.getElementById('inputOrderNumber').value.trim() || null;
+    if (!client) {
+      showAlert('warning', 'Cliente requerido');
+      return false;
+    }
+
+    const items = [];
+    let ok = true;
+    document.querySelectorAll('.fila-producto').forEach(tr => {
+      const entryId = tr.querySelector('.input-entry-id').value || null;
+      const name    = tr.querySelector('.input-name').value.trim();
+      const brand   = tr.querySelector('.input-brand').value.trim();
+      const qty     = parseInt(tr.querySelector('.input-qty').value, 10);
+      if (!name || !brand || isNaN(qty) || qty < 1) ok = false;
+      items.push({ entry_id: entryId, name, brand, quantity: qty });
+    });
+    if (!ok) {
+      showAlert('warning', 'Revisa las líneas del despacho');
+      return false;
+    }
+
+    const batchId = {{ batch_id }};
+    fetch(`/despachos/editar/${batchId}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ client, order_number: orderNumber, items })
+    })
+    .then(async res => {
+      const body = await res.json();
+      if (res.ok) {
+        showAlert('success', body.message);
+        setTimeout(() => window.location.href = '/despachos/historico', 800);
+      } else {
+        showAlert('danger', body.error || 'Error desconocido al actualizar');
+      }
+    })
+    .catch(() => {
+      showAlert('danger', 'Error de red al conectar con el servidor');
+    });
+
+    return false; // evita recarga
+  }
+</script>
+{% endblock %}
+
+</body>
+</html>

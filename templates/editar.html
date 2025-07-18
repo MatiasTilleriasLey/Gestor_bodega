@@ -1,0 +1,40 @@
+{% include 'header.html' %}
+<body>
+{% include 'nav.html' %}
+<div class="container">
+  <br>
+  <h2>Editar Usuario</h2>
+    <div class="mb-3">
+      <label class="form-label">Username</label>
+      <input type="text" readonly 
+             class="form-control-plaintext" 
+             value="{{ user.username }}">
+      </div>
+      <div class="mb-3">
+        <label  class="form-label">Nombre</label>
+        <input type="text" class="form-control"
+               value="{{user.name}}"
+               id="name">
+      </div>
+      <div class="mb-3">
+        <label  class="form-label">Email</label>
+        <input type="email" class="form-control"
+               value="{{user.email}}"
+               id="email">
+      </div>
+      <div class="mb-3 form-check">
+        <input type="checkbox" class="form-check-input"
+          {% if user.is_Admin %}
+          checked
+          {% endif %}
+          id="is_Admin">
+        <label class="form-check-label">Administrador</label>
+      </div>
+      <button 
+        class="btn btn-primary"
+        onclick="edit_user({{user.id}})"
+      >Submit</button>
+  </div>
+  <script src="{{ url_for('static', filename='edit_user.js') }}"></script>
+</body>
+</html>
