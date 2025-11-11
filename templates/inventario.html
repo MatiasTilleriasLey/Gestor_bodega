@@ -5,18 +5,48 @@
 <div class="container mt-4">
   <h2>Inventario</h2>
 
-  <div class="mb-3">
-    <input
-      type="text"
-      id="searchInput"
-      class="form-control"
-      placeholder="Buscar por nombre o marca..."
-    >
+  <div class="row g-2 align-items-center mb-3">
+    <div class="col">
+      <input
+        type="text"
+        id="searchInput"
+        class="form-control"
+        placeholder="Buscar por nombre o marca..."
+      >
+    </div>
+
+    {% if is_Admin %}
+    <div class="col-auto">
+      <button id="startMergeBtn" class="btn btn-warning">
+        Iniciar fusión
+      </button>
+    </div>
+    {% endif %}
   </div>
+
+  {% if is_Admin %}
+  <!-- Barra que aparece solo en modo fusión -->
+  <div id="mergeToolbar" class="d-none mb-3">
+    <div class="alert alert-info py-2 px-3 mb-2">
+      Modo fusión activo: selecciona 2 o más productos que desees fusionar.
+    </div>
+    <div class="d-flex gap-2">
+      <button id="cancelMergeBtn" class="btn btn-outline-secondary">
+        Cancelar
+      </button>
+      <button id="confirmMergeBtn" class="btn btn-primary" disabled>
+        Fusionar seleccionados
+      </button>
+    </div>
+  </div>
+  {% endif %}
 
   <table class="table table-striped" id="inventoryTable">
     <thead>
       <tr>
+        {% if is_Admin %}
+        <th id="thSelect" class="d-none" style="width:34px;"></th>
+        {% endif %}
         <th data-field="id">ID</th>
         <th data-field="name">Nombre</th>
         <th data-field="brand">Marca</th>
@@ -26,159 +56,624 @@
         {% endif %}
       </tr>
     </thead>
-    <tbody>
-      <!-- se completa vía JS -->
-    </tbody>
+    <tbody></tbody>
   </table>
 </div>
+
+<!-- Modal de Fusión -->
+<div class="modal fade" id="mergeModal" tabindex="-1" aria-labelledby="mergeModalLabel" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="mergeModalLabel">Fusionar productos</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <p>Seleccionaste <strong><span id="selCount">0</span></strong> productos.</p>
+
+        <div class="mb-3">
+          <label class="form-label">Producto destino</label>
+          <select id="mergeTargetSelect" class="form-select"></select>
+        </div>
+
+        <div class="mb-3">
+          <label class="form-label">Nuevo nombre (opcional)</label>
+          <input type="text" id="newName" class="form-control">
+        </div>
+
+        <div class="mb-3">
+          <label class="form-label">Nueva marca (opcional)</label>
+          <input type="text" id="newBrand" class="form-control">
+        </div>
+
+        <div class="alert alert-warning">
+          Esta acción <strong>sumará el stock</strong> y <strong>moverá</strong> las referencias al producto destino.
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button id="doMergeBtn" type="button" class="btn btn-primary">Confirmar fusión</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal Eliminar Producto (detallado) -->
+<div class="modal fade" id="deleteModal" tabindex="-1" aria-labelledby="deleteModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-lg"> <!-- ancho mayor para listas -->
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="deleteModalLabel">Eliminar producto</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div id="deleteInfo" class="mb-3">
+          <p class="mb-1"><strong>Producto:</strong> <span id="delName">—</span></p>
+          <p class="mb-1"><strong>Marca:</strong> <span id="delBrand">—</span></p>
+          <p class="mb-3"><strong>ID:</strong> <span id="delId">—</span></p>
+        </div>
+
+        <div id="usageBox" class="mb-3">
+          <!-- RESUMEN -->
+          <div class="mb-2">
+            <span class="me-2">Ingresos inventario: <strong id="uInv">0</strong></span>
+            <span class="me-2">Despachos: <strong id="uDsp">0</strong></span>
+            <span class="me-2">Ítems de OC: <strong id="uPoi">0</strong></span>
+            <span>Total: <strong id="uTot">0</strong></span>
+          </div>
+
+          <!-- LISTAS DETALLADAS -->
+          <div class="accordion" id="refsAcc">
+            <!-- INVENTORY -->
+            <div class="accordion-item">
+              <h2 class="accordion-header">
+                <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#accInv">
+                  Ingresos de inventario
+                </button>
+              </h2>
+              <div id="accInv" class="accordion-collapse collapse">
+                <div class="accordion-body">
+                  <div class="d-flex justify-content-between align-items-center mb-2">
+                    <div>
+                      <input type="checkbox" id="invCheckAll" class="form-check-input me-2">
+                      <label for="invCheckAll">Seleccionar todos</label>
+                    </div>
+                    <small class="text-muted">Marca las filas a eliminar</small>
+                  </div>
+                  <div id="invList" class="table-responsive"></div>
+                </div>
+              </div>
+            </div>
+
+            <!-- DESPACHOS -->
+            <div class="accordion-item">
+              <h2 class="accordion-header">
+                <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#accDsp">
+                  Despachos
+                </button>
+              </h2>
+              <div id="accDsp" class="accordion-collapse collapse">
+                <div class="accordion-body">
+                  <div class="d-flex justify-content-between align-items-center mb-2">
+                    <div>
+                      <input type="checkbox" id="dspCheckAll" class="form-check-input me-2">
+                      <label for="dspCheckAll">Seleccionar todos</label>
+                    </div>
+                    <small class="text-muted">Marca las filas a eliminar</small>
+                  </div>
+                  <div id="dspList" class="table-responsive"></div>
+                </div>
+              </div>
+            </div>
+
+            <!-- ORDENES DE COMPRA -->
+            <div class="accordion-item">
+              <h2 class="accordion-header">
+                <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#accPOI">
+                  Ítems de Orden de Compra
+                </button>
+              </h2>
+              <div id="accPOI" class="accordion-collapse collapse">
+                <div class="accordion-body">
+                  <div class="d-flex justify-content-between align-items-center mb-2">
+                    <div>
+                      <input type="checkbox" id="poiCheckAll" class="form-check-input me-2">
+                      <label for="poiCheckAll">Seleccionar todos</label>
+                    </div>
+                    <small class="text-muted">Marca las filas a eliminar</small>
+                  </div>
+                  <div id="poiList" class="table-responsive"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div id="usageAlert" class="alert d-none mt-3"></div>
+        </div>
+
+        <div class="alert alert-warning mb-0">
+          Esta acción es permanente. Puedes eliminar selectivamente las referencias marcadas.
+          Cuando no queden referencias, podrás eliminar el producto.
+        </div>
+      </div>
+      <div class="modal-footer d-flex justify-content-between">
+        <button id="doDeleteRefsBtn" type="button" class="btn btn-outline-danger" disabled>Eliminar seleccionados</button>
+        <button id="doDeleteBtn" type="button" class="btn btn-danger" disabled>Eliminar definitivamente</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 {% endblock %}
 
 {% block scripts %}
 <script>
-  // Variable inyectada por Jinja para saber si el usuario es admin
-  const isAdmin = {{ 'true' if is_Admin else 'false' }};
+// ==================== Estado global ====================
+const isAdmin = {{ 'true' if is_Admin else 'false' }};
+let inventory = [];
+let mergeMode = false;
+const selectedIds = new Set();
 
-  let inventory = [];       // Datos originales
-  let currentField = 'id';  // Campo de orden actual
-  let asc = true;           // Dirección de orden: ascendente/descendente
+// para eliminación detallada
+let bsDeleteModal = null;
+let deleteTargetId = null;
+const selRefs = { inv: new Set(), dsp: new Set(), poi: new Set() };
 
-  // 1. Cargar inventario al inicio
-  function loadInventory() {
-    fetch('/api/inventario')
-      .then(res => res.json())
-      .then(data => {
-        inventory = data;
-        renderTable(inventory);
-      })
-      .catch(console.error);
-  }
-
-  // 2. Renderizar la tabla, ordenando y filtrando
-  function renderTable(arr) {
-    const tbody = document.querySelector('#inventoryTable tbody');
-    tbody.innerHTML = '';
-
-    // Ordenamos según currentField y asc
-    arr.sort((a, b) => {
-      const fa = a[currentField], fb = b[currentField];
-      if (fa < fb) return asc ? -1 : 1;
-      if (fa > fb) return asc ? 1 : -1;
-      return 0;
-    });
-
-    // Creamos las filas
-    for (const p of arr) {
-      const tr = document.createElement('tr');
-      tr.dataset.id = p.id;
-      tr.innerHTML = `
-        <td>${p.id}</td>
-        <td>${p.name}</td>
-        <td>${p.brand}</td>
-        <td>${p.stock}</td>
-        ${ isAdmin 
-          ? `<td>
-               <button class="btn btn-sm btn-outline-primary"
-                       onclick="editProduct(${p.id})">
-                 Editar
-               </button>
-             </td>`
-          : ``
-        }
-      `;
-      tbody.appendChild(tr);
-    }
-  }
-
-  // 3. Cabeceras clicables para cambiar el orden
-  document.querySelectorAll('#inventoryTable th[data-field]').forEach(th => {
-    th.style.cursor = 'pointer';
-    th.addEventListener('click', () => {
-      const field = th.dataset.field;
-      if (currentField === field) {
-        asc = !asc;
-      } else {
-        currentField = field;
-        asc = true;
-      }
+// ==================== CARGA Y FILTRO ====================
+function loadInventory() {
+  fetch('/api/inventario')
+    .then(res => res.json())
+    .then(data => {
+      inventory = data;
       applyFilter();
+    })
+    .catch(console.error);
+}
+
+document.getElementById('searchInput').addEventListener('input', applyFilter);
+
+function applyFilter() {
+  const q = document.getElementById('searchInput').value.trim().toLowerCase();
+  const filtered = q
+    ? inventory.filter(p =>
+        (p.name || '').toLowerCase().includes(q) ||
+        (p.brand || '').toLowerCase().includes(q)
+      )
+    : inventory.slice();
+  renderTable(filtered);
+}
+
+function renderTable(arr) {
+  const tbody = document.querySelector('#inventoryTable tbody');
+  tbody.innerHTML = '';
+
+  if (isAdmin) document.getElementById('thSelect').classList.toggle('d-none', !mergeMode);
+
+  for (const p of arr) {
+    const tr = document.createElement('tr');
+    tr.dataset.id = p.id;
+
+    let selectTd = '';
+    if (isAdmin && mergeMode) {
+      const checked = selectedIds.has(p.id) ? 'checked' : '';
+      selectTd = `<td><input type="checkbox" class="form-check-input select-row" data-id="${p.id}" ${checked}></td>`;
+    } else if (isAdmin) {
+      selectTd = `<td class="d-none"></td>`;
+    }
+
+    tr.innerHTML = `
+      ${isAdmin ? selectTd : ''}
+      <td>${p.id}</td>
+      <td>${p.name}</td>
+      <td>${p.brand}</td>
+      <td>${p.stock}</td>
+      ${isAdmin ? `
+        <td>
+          <button class="btn btn-sm btn-outline-primary" onclick="editProduct(${p.id})" ${mergeMode ? 'disabled' : ''}>Editar</button>
+          <button class="btn btn-sm btn-outline-danger" onclick="openDeleteModal(${p.id})" ${mergeMode ? 'disabled' : ''}>Eliminar</button>
+        </td>` : '' }
+    `;
+    tbody.appendChild(tr);
+  }
+
+  // (re)conectar selección en modo fusión
+  if (isAdmin) {
+    tbody.removeEventListener('change', onRowSelectChange);
+    tbody.addEventListener('change', onRowSelectChange);
+  }
+}
+
+// ==================== MODO FUSIÓN ====================
+function updateMergeUI() {
+  const startBtn = document.getElementById('startMergeBtn');
+  const toolbar = document.getElementById('mergeToolbar');
+  if (mergeMode) {
+    startBtn.classList.add('d-none');
+    toolbar.classList.remove('d-none');
+  } else {
+    startBtn.classList.remove('d-none');
+    toolbar.classList.add('d-none');
+    selectedIds.clear();
+  }
+}
+
+function setMergeMode(on) {
+  mergeMode = !!on;
+  updateMergeUI();
+  applyFilter();
+}
+
+function onRowSelectChange(e) {
+  const cb = e.target.closest('.select-row');
+  if (!cb) return;
+  const id = parseInt(cb.dataset.id, 10);
+  if (cb.checked) selectedIds.add(id);
+  else selectedIds.delete(id);
+  document.getElementById('confirmMergeBtn').disabled = selectedIds.size < 2;
+}
+
+if (isAdmin) {
+  document.getElementById('startMergeBtn')?.addEventListener('click', () => setMergeMode(true));
+  document.getElementById('cancelMergeBtn')?.addEventListener('click', () => setMergeMode(false));
+  document.getElementById('confirmMergeBtn')?.addEventListener('click', openMergeModal);
+}
+
+// Modal fusión
+let bsMergeModal = null;
+function openMergeModal() {
+  const ids = Array.from(selectedIds);
+  if (ids.length < 2) return;
+
+  const select = document.getElementById('mergeTargetSelect');
+  const selCount = document.getElementById('selCount');
+  const newName = document.getElementById('newName');
+  const newBrand = document.getElementById('newBrand');
+
+  select.innerHTML = '';
+  const selectedProducts = ids.map(id => inventory.find(p => p.id === id)).filter(Boolean);
+  selectedProducts.forEach(p => {
+    const opt = document.createElement('option');
+    opt.value = p.id;
+    opt.textContent = `#${p.id} — ${p.name} (${p.brand || '—'})`;
+    select.appendChild(opt);
+  });
+
+  selCount.textContent = String(ids.length);
+  const first = selectedProducts[0];
+  newName.value = first?.name ?? '';
+  newBrand.value = first?.brand ?? '';
+
+  if (!bsMergeModal)
+    bsMergeModal = new bootstrap.Modal(document.getElementById('mergeModal'), { keyboard: false });
+  bsMergeModal.show();
+}
+
+document.getElementById('doMergeBtn')?.addEventListener('click', () => {
+  const select = document.getElementById('mergeTargetSelect');
+  const newName = document.getElementById('newName').value.trim();
+  const newBrand = document.getElementById('newBrand').value.trim();
+  const targetId = parseInt(select.value, 10);
+  const sources = Array.from(selectedIds).filter(id => id !== targetId);
+
+  fetch('/api/productos/merge', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({
+      target_id: targetId,
+      sources,
+      new_name: newName || undefined,
+      new_brand: newBrand || undefined
+    })
+  })
+  .then(res => res.json().then(body => ({status: res.status, body})))
+  .then(({status, body}) => {
+    if (status === 200) {
+      loadInventory();
+      setMergeMode(false);
+      bsMergeModal?.hide();
+      alert(body.message || 'Fusión completada');
+    } else {
+      alert(body.error || 'No se pudo fusionar');
+    }
+  });
+});
+
+// ==================== ELIMINACIÓN DETALLADA ====================
+function renderRefsTable(containerId, rows, type) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+
+  if (!rows.length) {
+    container.innerHTML = `<div class="text-muted">Sin registros</div>`;
+    return;
+  }
+
+  let thead = '';
+  if (type === 'inv') {
+    thead = `
+      <tr>
+        <th><input type="checkbox" class="select-all" data-type="inv"></th>
+        <th>Ingreso #</th>
+        <th>ItemID</th>
+        <th>Cantidad</th>
+        <th>Fecha</th>
+        <th>Nota</th>
+      </tr>`;
+  } else if (type === 'dsp') {
+    thead = `
+      <tr>
+        <th><input type="checkbox" class="select-all" data-type="dsp"></th>
+        <th>ItemID</th>
+        <th>Despacho</th>
+        <th>Cantidad</th>
+        <th>Fecha</th>
+        <th>Nota</th>
+      </tr>`;
+  } else {
+    thead = `
+      <tr>
+        <th><input type="checkbox" class="select-all" data-type="poi"></th>
+        <th>ItemID</th>
+        <th>OC</th>
+        <th>Cantidad</th>
+        <th>Fecha</th>
+      </tr>`;
+  }
+
+  const rowsHtml = rows.map(r => {
+    let checked = '';
+    if (type === 'inv') checked = selRefs.inv.has(r.id) ? 'checked' : '';
+    if (type === 'dsp') checked = selRefs.dsp.has(r.id) ? 'checked' : '';
+    if (type === 'poi') checked = selRefs.poi.has(r.id) ? 'checked' : '';
+
+    if (type === 'inv') {
+      return `
+        <tr>
+          <td><input type="checkbox" class="ref-cb" data-type="inv" data-id="${r.id}" ${checked}></td>
+          <td>${(r.batch_number ?? r.batch_id ?? '—')}</td>
+          <td>${r.id}</td>
+          <td>${r.quantity ?? ''}</td>
+          <td>${r.date ?? ''}</td>
+          <td>${r.note ?? ''}</td>
+        </tr>`;
+    } else if (type === 'dsp') {
+      const despId = r.dispatch_id ?? '—';
+      const despCode = r.dispatch_code ? ` (${r.dispatch_code})` : '';
+      const despCell = (despId !== '—')
+        ? `<a href="/despachos/${despId}" target="_blank">#${despId}</a>${despCode}`
+        : `—`;
+      return `
+        <tr>
+          <td><input type="checkbox" class="ref-cb" data-type="dsp" data-id="${r.id}" ${checked}></td>
+          <td>${r.id}</td>
+          <td>${despCell}</td>
+          <td>${r.quantity ?? ''}</td>
+          <td>${r.date ?? ''}</td>
+          <td>${r.note ?? ''}</td>
+        </tr>`;
+    } else {
+      return `
+        <tr>
+          <td><input type="checkbox" class="ref-cb" data-type="poi" data-id="${r.id}" ${checked}></td>
+          <td>${r.id}</td>
+          <td>${r.order_number ?? '—'}</td>
+          <td>${r.quantity ?? ''}</td>
+          <td>${r.date ?? ''}</td>
+        </tr>`;
+    }
+  }).join('');
+
+  container.innerHTML = `
+    <table class="table table-sm table-hover mb-0">
+      <thead>${thead}</thead>
+      <tbody>${rowsHtml}</tbody>
+    </table>`;
+
+  // ➕ Evento para "Seleccionar todos"
+  const selectAll = container.querySelector('.select-all');
+  if (selectAll) {
+    selectAll.addEventListener('change', e => {
+      const checkAll = e.target.checked;
+      const checkboxes = container.querySelectorAll('.ref-cb');
+      checkboxes.forEach(cb => {
+        cb.checked = checkAll;
+        const id = parseInt(cb.dataset.id, 10);
+        const type = cb.dataset.type;
+        if (checkAll) selRefs[type].add(id);
+        else selRefs[type].delete(id);
+      });
+    });
+  }
+}
+
+function recomputeSelectionButtons() {
+  const anySelected = selRefs.inv.size || selRefs.dsp.size || selRefs.poi.size;
+  document.getElementById('doDeleteRefsBtn').disabled = !anySelected;
+
+  const total = parseInt(document.getElementById('uTot').textContent || '0', 10);
+  document.getElementById('doDeleteBtn').disabled = total > 0; // solo cuando no hay referencias
+}
+
+function wireListsSelection(invRows, dspRows, poiRows) {
+  // Delegación de eventos para checkboxes en las tablas
+  document.querySelectorAll('#invList, #dspList, #poiList').forEach(box => {
+    box.addEventListener('change', (e) => {
+      const cb = e.target.closest('.ref-cb');
+      if (!cb) return;
+      const type = cb.dataset.type;
+      const id = parseInt(cb.dataset.id, 10);
+      const set = selRefs[type];
+      if (cb.checked) set.add(id); else set.delete(id);
+      recomputeSelectionButtons();
     });
   });
 
-  // 4. Búsqueda por nombre o marca
-  document.getElementById('searchInput')
-          .addEventListener('input', applyFilter);
+  // Check-all por sección
+  const invAll = document.getElementById('invCheckAll');
+  const dspAll = document.getElementById('dspCheckAll');
+  const poiAll = document.getElementById('poiCheckAll');
 
-  function applyFilter() {
-    const q = document.getElementById('searchInput').value
-                .trim().toLowerCase();
-    if (!q) {
-      renderTable(inventory);
-    } else {
-      const filtered = inventory.filter(p =>
-        p.name.toLowerCase().includes(q) ||
-        p.brand.toLowerCase().includes(q)
-      );
-      renderTable(filtered);
-    }
-  }
+  if (invAll) invAll.onclick = () => {
+    selRefs.inv.clear();
+    if (invAll.checked) invRows.forEach(r => selRefs.inv.add(r.id));
+    renderRefsTable('invList', invRows, 'inv');
+    recomputeSelectionButtons();
+  };
+  if (dspAll) dspAll.onclick = () => {
+    selRefs.dsp.clear();
+    if (dspAll.checked) dspRows.forEach(r => selRefs.dsp.add(r.id));
+    renderRefsTable('dspList', dspRows, 'dsp');
+    recomputeSelectionButtons();
+  };
+  if (poiAll) poiAll.onclick = () => {
+    selRefs.poi.clear();
+    if (poiAll.checked) poiRows.forEach(r => selRefs.poi.add(r.id));
+    renderRefsTable('poiList', poiRows, 'poi');
+    recomputeSelectionButtons();
+  };
+}
 
-  // 5. Función de edición inline (solo admins)
-  function editProduct(id) {
-    // Localizar la fila
-    const tr = document.querySelector(
-      `#inventoryTable tr[data-id="${id}"]`
-    );
-    const [ , tdName, tdBrand, tdStock ] = tr.children;
+function openDeleteModal(id) {
+  deleteTargetId = id;
+  selRefs.inv.clear(); selRefs.dsp.clear(); selRefs.poi.clear();
+  const delId    = document.getElementById('delId');
+  const delName  = document.getElementById('delName');
+  const delBrand = document.getElementById('delBrand');
+  const uInv     = document.getElementById('uInv');
+  const uDsp     = document.getElementById('uDsp');
+  const uPoi     = document.getElementById('uPoi');
+  const uTot     = document.getElementById('uTot');
+  const usageAlert = document.getElementById('usageAlert');
+  const btnDelete  = document.getElementById('doDeleteBtn');
+  const btnDeleteRefs = document.getElementById('doDeleteRefsBtn');
 
-    // Pedimos nuevos valores
-    const newName  = prompt('Nuevo nombre:', tdName.textContent);
-    if (newName === null) return;
-    const newBrand = prompt('Nueva marca:', tdBrand.textContent);
-    if (newBrand === null) return;
-    const stockStr = prompt('Nuevo stock (≥0):', tdStock.textContent);
-    if (stockStr === null) return;
-    const newStock = parseInt(stockStr, 10);
-    if (isNaN(newStock) || newStock < 0) {
-      alert('Stock inválido');
-      return;
-    }
+  delId.textContent = id;
+  delName.textContent = 'Cargando...';
+  delBrand.textContent = 'Cargando...';
+  [uInv, uDsp, uPoi, uTot].forEach(el => el.textContent = '—');
+  usageAlert.className = 'alert d-none';
+  usageAlert.textContent = '';
+  btnDelete.disabled = true;
+  btnDeleteRefs.disabled = true;
+  document.getElementById('invList').innerHTML = '';
+  document.getElementById('dspList').innerHTML = '';
+  document.getElementById('poiList').innerHTML = '';
+  document.getElementById('invCheckAll').checked = false;
+  document.getElementById('dspCheckAll').checked = false;
+  document.getElementById('poiCheckAll').checked = false;
 
-    // Enviar la actualización al backend
-    fetch(`/api/productos/${id}`, {
-      method: 'PUT',
-      headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({
-        name:  newName.trim(),
-        brand: newBrand.trim(),
-        stock: newStock
-      })
-    })
-    .then(res => res.json().then(body => ({status: res.status, body})))
-    .then(({status, body}) => {
-      if (status === 200) {
-        // Actualizar la fila al vuelo
-        tdName.textContent  = body.product.name;
-        tdBrand.textContent = body.product.brand;
-        tdStock.textContent = body.product.stock;
-        // También actualizamos el array original
-        const idx = inventory.findIndex(p => p.id === id);
-        if (idx !== -1) {
-          inventory[idx] = body.product;
+  if (!bsDeleteModal)
+    bsDeleteModal = new bootstrap.Modal(document.getElementById('deleteModal'), { keyboard: false });
+  bsDeleteModal.show();
+
+  // 1) Resumen
+  fetch(`/api/productos/${id}/usage`)
+    .then(r => r.json().then(b => ({st: r.status, b})))
+    .then(({st,b}) => {
+      if (st === 200) {
+        delName.textContent  = b.product?.name ?? '—';
+        delBrand.textContent = b.product?.brand ?? '—';
+        uInv.textContent = b.usage?.inventory_entries ?? 0;
+        uDsp.textContent = b.usage?.dispatch_entries ?? 0;
+        uPoi.textContent = b.usage?.purchase_order_items ?? 0;
+        uTot.textContent = b.usage?.total ?? 0;
+        if ((b.usage?.total ?? 0) > 0) {
+          usageAlert.className = 'alert alert-warning';
+          usageAlert.textContent = 'Tiene referencias. Puedes eliminarlas selectivamente abajo.';
+          usageAlert.classList.remove('d-none');
+        } else {
+          usageAlert.className = 'alert alert-success';
+          usageAlert.textContent = 'Sin referencias. Puedes eliminar el producto.';
+          usageAlert.classList.remove('d-none');
+          btnDelete.disabled = false;
         }
-      } else {
-        alert(body.error || 'No se pudo actualizar el producto');
       }
+    }).catch(()=>{});
+
+  // 2) Detalle
+  fetch(`/api/productos/${id}/refs_detail`)
+    .then(r => r.json().then(b => ({st: r.status, b})))
+    .then(({st, b}) => {
+      if (st !== 200) {
+        usageAlert.className = 'alert alert-danger';
+        usageAlert.textContent = b.error || 'No se pudo cargar el detalle.';
+        usageAlert.classList.remove('d-none');
+        return;
+      }
+      const invRows = b.inventory_entries || [];
+      const dspRows = b.dispatch_entries || [];
+      const poiRows = b.purchase_order_items || [];
+
+      renderRefsTable('invList', invRows, 'inv');
+      renderRefsTable('dspList', dspRows, 'dsp');
+      renderRefsTable('poiList', poiRows, 'poi');
+      wireListsSelection(invRows, dspRows, poiRows);
+      recomputeSelectionButtons();
     })
     .catch(err => {
       console.error(err);
-      alert('Error de red. Intenta de nuevo.');
+      usageAlert.className = 'alert alert-danger';
+      usageAlert.textContent = 'Error de red al cargar detalle.';
+      usageAlert.classList.remove('d-none');
     });
-  }
+}
 
-  // Inicializar todo al cargar la página
-  window.addEventListener('DOMContentLoaded', loadInventory);
+// Borrar referencias seleccionadas
+document.getElementById('doDeleteRefsBtn')?.addEventListener('click', () => {
+  if (!deleteTargetId) return;
+  const payload = {
+    inventory_entry_ids: Array.from(selRefs.inv),
+    dispatch_entry_ids:  Array.from(selRefs.dsp),
+    purchase_order_item_ids: Array.from(selRefs.poi)
+  };
+  if (!payload.inventory_entry_ids.length && !payload.dispatch_entry_ids.length && !payload.purchase_order_item_ids.length) return;
 
+  fetch(`/api/productos/${deleteTargetId}/refs_delete`, {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify(payload)
+  })
+  .then(r => r.json().then(b => ({st: r.status, b})))
+  .then(({st,b}) => {
+    if (st === 200) {
+      alert('Referencias eliminadas');
+      // Reabrimos modal para refrescar listas/estado
+      openDeleteModal(deleteTargetId);
+      // Refrescar la tabla principal (por si cambió stock/estado)
+      loadInventory();
+    } else {
+      alert(b.error || 'No se pudo eliminar las referencias seleccionadas');
+    }
+  })
+  .catch(() => alert('Error de red'));
+});
+
+// Borrado definitivo
+document.getElementById('doDeleteBtn')?.addEventListener('click', () => {
+  if (!deleteTargetId) return;
+  fetch(`/api/productos/${deleteTargetId}`, { method: 'DELETE' })
+    .then(res => res.json().then(body => ({status: res.status, body})))
+    .then(({status, body}) => {
+      if (status === 200) {
+        inventory = inventory.filter(p => p.id !== deleteTargetId);
+        applyFilter();
+        bsDeleteModal?.hide();
+        alert(body.message || 'Producto eliminado.');
+      } else {
+        alert(body.error || 'No se pudo eliminar');
+      }
+    });
+});
+
+// ==================== INICIO ====================
+window.addEventListener('DOMContentLoaded', loadInventory);
+
+// Placeholder para “Editar” si lo usas
+function editProduct(id) {
+  // navega o abre modal de edición según tu app
+  window.location.href = `/productos/${id}/editar`;
+}
 </script>
 {% endblock %}
 </body>
 </html>
+

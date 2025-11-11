@@ -1,3 +1,5 @@
+from flask import jsonify, request, session
+from datetime import datetime
 from flask import Flask, render_template, jsonify, redirect, url_for
 from flask import request
 from flask import session, abort
@@ -7,6 +9,7 @@ from database.db import DispatchBatch, DispatchEntry, Client, Log
 from database.db import PurchaseOrder, PurchaseOrderItem
 from functools import wraps
 from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.orm import joinedload
 from sqlalchemy import func
 import bleach
 import json
@@ -23,6 +26,15 @@ ALLOWED_TAGS = []
 ALLOWED_ATTRS = {}
 
 init_db(app)
+
+
+def _to_iso(dt):
+    if isinstance(dt, datetime):
+        try:
+            return dt.isoformat(sep=' ', timespec='seconds')
+        except Exception:
+            return dt.isoformat()
+    return dt  # ya es str o None
 
 
 @app.context_processor
@@ -355,6 +367,379 @@ def inventario():
         name=session.get('name'),
         is_Admin=session.get('is_Admin', False)
     )
+
+
+@app.route('/api/productos/<int:product_id>/usage', methods=['GET'])
+@admin_required
+def api_get_product_usage(product_id):
+    """Devuelve conteo de referencias del producto en otras tablas."""
+    product = Product.query.get(product_id)
+    if not product:
+        return jsonify(error="Producto no encontrado"), 404
+
+    inv_count = db.session.query(func.count(InventoryEntry.id))\
+        .filter(InventoryEntry.product_id == product_id).scalar()
+    dsp_count = db.session.query(func.count(DispatchEntry.id))\
+        .filter(DispatchEntry.product_id == product_id).scalar()
+    poi_count = db.session.query(func.count(PurchaseOrderItem.id))\
+        .filter(PurchaseOrderItem.product_id == product_id).scalar()
+
+    return jsonify({
+        "product": {
+            "id": product.id,
+            "name": product.name,
+            "brand": product.brand,
+            "stock": product.stock
+        },
+        "usage": {
+            "inventory_entries": int(inv_count or 0),
+            "dispatch_entries": int(dsp_count or 0),
+            "purchase_order_items": int(poi_count or 0),
+            "total": int((inv_count or 0) + (dsp_count or 0) + (poi_count or 0))
+        }
+    }), 200
+
+# === 1) Referencias DETALLADAS por producto ===
+
+
+def _to_iso(dt):
+    if isinstance(dt, datetime):
+        try:
+            return dt.isoformat(sep=' ', timespec='seconds')
+        except Exception:
+            return dt.isoformat()
+    return dt  # ya es str o None
+
+
+@app.route('/api/productos/<int:product_id>/refs_detail', methods=['GET'])
+@admin_required
+def api_product_refs_detail(product_id):
+    """Devuelve referencias detalladas de un producto:
+    - Ingresos de inventario (item + cabecera/lote)
+    - Despachos (item + número de despacho si existe)
+    - Ítems de Orden de Compra (item + número de OC)
+    """
+    p = Product.query.get(product_id)
+    if not p:
+        return jsonify(error="Producto no encontrado"), 404
+
+    # ========== INVENTORY ENTRIES ==========
+    # InventoryEntry debe tener FK batch_id -> InventoryBatch.id (o relación .batch)
+    inv_entries = db.session.query(InventoryEntry)\
+        .filter(InventoryEntry.product_id == product_id)\
+        .order_by(InventoryEntry.id.desc())\
+        .all()
+
+    inv_list = []
+    for e in inv_entries:
+        batch_id = getattr(e, "batch_id", None)
+        batch_number = None
+        batch_date = None
+        try:
+            # Si tienes relación ORM: e.batch
+            batch = getattr(e, "batch", None)
+            if batch is None and batch_id:
+                # <-- ajusta nombre si difiere
+                batch = InventoryBatch.query.get(batch_id)
+            if batch:
+                # En tu histórico muestras "Ingreso #<id>", así que usamos el id de la cabecera
+                batch_number = getattr(batch, "id", None) or getattr(
+                    batch, "number", None)
+                batch_date = getattr(batch, "created_at", None) or getattr(
+                    batch, "date", None)
+        except NameError:
+            # Si no existe InventoryBatch en tu proyecto, simplemente no incluimos datos de cabecera
+            pass
+
+        inv_list.append({
+            "id": e.id,  # ItemID (fila)
+            "batch_id": batch_id,
+            "batch_number": batch_number,   # lo que verás como "Ingreso #"
+            "quantity": getattr(e, "quantity", None),
+            "date": _to_iso(getattr(e, "created_at", None) or getattr(e, "date", None) or batch_date),
+            "note": getattr(e, "note", None)
+        })
+
+    # ========== DISPATCH ENTRIES ==========
+# Queremos el ID REAL DEL DESPACHO (batch/cabecera), no el número de OC.
+    dsp_list = []
+    dsp_entries = db.session.query(DispatchEntry)\
+        .filter(DispatchEntry.product_id == product_id)\
+        .order_by(DispatchEntry.id.desc())\
+        .all()
+
+    for d in dsp_entries:
+        dispatch_id = None        # <-- ID real del despacho (cabecera)
+        dispatch_code = None      # <-- si tu cabecera tiene un "número/folio" propio del despacho
+        dispatch_date = getattr(
+            d, "created_at", None) or getattr(d, "date", None)
+
+        try:
+            # Recuperamos la cabecera (batch) del despacho
+            batch = None
+            if hasattr(d, "batch") and d.batch is not None:
+                batch = d.batch
+            elif hasattr(d, "batch_id") and d.batch_id:
+                batch = DispatchBatch.query.get(
+                    d.batch_id)  # ajusta nombre si difiere
+
+            if batch:
+                dispatch_id = getattr(batch, "id", None)
+            # NOTA: aquí NO usamos order_number
+                dispatch_code = getattr(batch, "number", None) or getattr(
+                    batch, "folio", None)
+                dispatch_date = dispatch_date or getattr(
+                    batch, "created_at", None) or getattr(batch, "date", None)
+        except NameError:
+            pass
+
+        dsp_list.append({
+            "id": d.id,                       # ItemID del detalle de despacho
+            "quantity": getattr(d, "quantity", None),
+            # <-- ID real del despacho (lo que pides)
+            "dispatch_id": dispatch_id,
+            "dispatch_code": dispatch_code,   # <-- opcional: código propio del despacho
+            "date": _to_iso(dispatch_date),
+            "note": getattr(d, "note", None)
+        })
+
+    # ========== PURCHASE ORDER ITEMS ==========
+    # PurchaseOrderItem.product_id -> Product.id ; FK order_id -> PurchaseOrder.id
+    poi_list = []
+    poi_rows = db.session.query(PurchaseOrderItem, PurchaseOrder)\
+        .join(PurchaseOrder, PurchaseOrder.id == PurchaseOrderItem.order_id)\
+        .filter(PurchaseOrderItem.product_id == product_id)\
+        .order_by(PurchaseOrder.id.desc(), PurchaseOrderItem.id.desc())\
+        .all()
+
+    for item, oc in poi_rows:
+        poi_list.append({
+            "id": item.id,
+            "order_id": oc.id,
+            "order_number": getattr(oc, "number", None) or getattr(oc, "folio", None) or oc.id,
+            "quantity": getattr(item, "quantity", None),
+            "date": _to_iso(getattr(oc, "created_at", None) or getattr(oc, "date", None))
+        })
+
+    return jsonify({
+        "product": {"id": p.id, "name": p.name, "brand": p.brand},
+        "inventory_entries": inv_list,
+        "dispatch_entries": dsp_list,
+        "purchase_order_items": poi_list
+    }), 200
+
+
+# === 2) Borrado selectivo de referencias ===
+@app.route('/api/productos/<int:product_id>/refs_delete', methods=['POST'])
+@admin_required
+def api_product_refs_delete(product_id):
+    p = Product.query.get(product_id)
+    if not p:
+        return jsonify(error="Producto no encontrado"), 404
+
+    data = request.get_json(silent=True) or {}
+    inv_ids = set(map(int, data.get("inventory_entry_ids", []) or []))
+    dsp_ids = set(map(int, data.get("dispatch_entry_ids", []) or []))
+    poi_ids = set(map(int, data.get("purchase_order_item_ids", []) or []))
+
+    # Seguridad: solo borrar registros que efectivamente correspondan al product_id indicado
+    try:
+        inv_del = 0
+        if inv_ids:
+            inv_del = InventoryEntry.query.filter(
+                InventoryEntry.id.in_(inv_ids),
+                InventoryEntry.product_id == product_id
+            ).delete(synchronize_session=False)
+
+        dsp_del = 0
+        if dsp_ids:
+            dsp_del = DispatchEntry.query.filter(
+                DispatchEntry.id.in_(dsp_ids),
+                DispatchEntry.product_id == product_id
+            ).delete(synchronize_session=False)
+
+        poi_del = 0
+        if poi_ids:
+            poi_del = PurchaseOrderItem.query.filter(
+                PurchaseOrderItem.id.in_(poi_ids),
+                PurchaseOrderItem.product_id == product_id
+            ).delete(synchronize_session=False)
+
+        # Log opcional
+        db.session.add(Log(
+            user_id=session.get('user_id'),
+            action='delete_product_refs',
+            target_table='products',
+            target_id=p.id,
+            details=json.dumps({
+                "inv_deleted": inv_del,
+                "dsp_deleted": dsp_del,
+                "poi_deleted": poi_del
+            })
+        ))
+
+        db.session.commit()
+        return jsonify(message="Referencias eliminadas",
+                       deleted={"inventory_entries": inv_del, "dispatch_entries": dsp_del, "purchase_order_items": poi_del}), 200
+    except SQLAlchemyError:
+        db.session.rollback()
+        return jsonify(error="Error interno al eliminar referencias"), 500
+
+
+@app.route('/api/productos/<int:product_id>', methods=['DELETE'])
+@admin_required
+def api_delete_product(product_id):
+    """
+    Elimina un producto si NO tiene referencias en:
+    - InventoryEntry
+    - DispatchEntry
+    - PurchaseOrderItem
+
+    Si tiene referencias, responde 409 con los conteos.
+    """
+    product = Product.query.get(product_id)
+    if not product:
+        return jsonify(error="Producto no encontrado"), 404
+
+    inv_count = db.session.query(func.count(InventoryEntry.id))\
+        .filter(InventoryEntry.product_id == product_id).scalar() or 0
+    dsp_count = db.session.query(func.count(DispatchEntry.id))\
+        .filter(DispatchEntry.product_id == product_id).scalar() or 0
+    poi_count = db.session.query(func.count(PurchaseOrderItem.id))\
+        .filter(PurchaseOrderItem.product_id == product_id).scalar() or 0
+    total = inv_count + dsp_count + poi_count
+
+    if total > 0:
+        return jsonify(
+            error="El producto tiene referencias y no puede eliminarse. Fusiona antes.",
+            usage={
+                "inventory_entries": int(inv_count),
+                "dispatch_entries": int(dsp_count),
+                "purchase_order_items": int(poi_count),
+                "total": int(total)
+            }
+        ), 409
+
+    # OK para eliminar
+    try:
+        db.session.add(Log(
+            user_id=session.get('user_id'),
+            action='delete_product',
+            target_table='products',
+            target_id=product.id,
+            details=json.dumps({
+                "name": product.name,
+                "brand": product.brand,
+                "stock": product.stock
+            })
+        ))
+        db.session.delete(product)
+        db.session.commit()
+        return jsonify(message="Producto eliminado", id=product_id), 200
+    except SQLAlchemyError:
+        db.session.rollback()
+        return jsonify(error="Error interno al eliminar"), 500
+
+
+@app.route('/api/productos/merge', methods=['POST'])
+@admin_required
+def api_merge_products():
+    """
+    Fusiona varios productos en uno solo:
+    - body JSON: {"target_id": 123, "sources": [456, 789], "new_name": "opcional", "new_brand": "opcional"}
+    - Mueve referencias en InventoryEntry, DispatchEntry, PurchaseOrderItem al target.
+    - Suma stock de sources al target.
+    - Elimina products de sources.
+    """
+    data = request.get_json(silent=True) or {}
+    try:
+        target_id = int(data.get('target_id'))
+    except (TypeError, ValueError):
+        return jsonify(error="target_id inválido"), 400
+
+    sources = data.get('sources') or []
+    if not isinstance(sources, list) or not sources:
+        return jsonify(error="Debes enviar lista 'sources' con IDs de productos a fusionar"), 400
+
+    # normalizar y validar IDs
+    try:
+        sources = list({int(x) for x in sources})
+    except (TypeError, ValueError):
+        return jsonify(error="IDs en 'sources' inválidos"), 400
+
+    if target_id in sources:
+        return jsonify(error="target_id no puede estar también en 'sources'"), 400
+
+    # cargar destino
+    target = Product.query.get(target_id)
+    if not target:
+        return jsonify(error=f"Producto destino {target_id} no existe"), 404
+
+    # opcionalmente renombrar destino
+    new_name = (data.get('new_name') or '').strip()
+    new_brand = (data.get('new_brand') or '').strip()
+    if new_name:
+        target.name = bleach.clean(
+            new_name, tags=[], attributes={}, strip=True)
+    if new_brand:
+        target.brand = bleach.clean(
+            new_brand, tags=[], attributes={}, strip=True)
+
+    # cargar fuentes
+    src_objs = Product.query.filter(Product.id.in_(sources)).all()
+    faltantes = set(sources) - {p.id for p in src_objs}
+    if faltantes:
+        return jsonify(error=f"Productos fuente inexistentes: {sorted(faltantes)}"), 404
+
+    try:
+        # mover referencias en bloque
+        for src in src_objs:
+            # 1) Inventario (ingresos)
+            InventoryEntry.query.filter_by(product_id=src.id).update(
+                {"product_id": target.id}, synchronize_session=False)
+
+            # 2) Despachos
+            DispatchEntry.query.filter_by(product_id=src.id).update(
+                {"product_id": target.id}, synchronize_session=False)
+
+            # 3) Ítems de órdenes de compra
+            PurchaseOrderItem.query.filter_by(product_id=src.id).update(
+                {"product_id": target.id}, synchronize_session=False)
+
+            # 4) Sumar stock
+            target.stock = (target.stock or 0) + (src.stock or 0)
+
+            # 5) Log de cada fusión individual
+            db.session.add(Log(
+                user_id=session['user_id'],
+                action='merge_product',
+                target_table='products',
+                target_id=target.id,
+                details=json.dumps({
+                    'source_id': src.id,
+                    'moved_entries': True,
+                    'stock_added': src.stock
+                })
+            ))
+
+            # 6) Eliminar el producto fuente
+            db.session.delete(src)
+
+        db.session.commit()
+        return jsonify(
+            message=f"Productos fusionados en {target.id}",
+            target={
+                'id': target.id,
+                'name': target.name,
+                'brand': target.brand,
+                'stock': target.stock
+            },
+            merged_sources=sorted([p.id for p in src_objs])
+        ), 200
+
+    except SQLAlchemyError as e:
+        db.session.rollback()
+        return jsonify(error="Error interno durante la fusión"), 500
 
 
 @app.route('/ingresos/historicos', methods=["GET"])
@@ -1272,43 +1657,60 @@ def ordenes_nuevo():
 @app.route('/ordenes/<int:order_id>')
 @login_required
 def orden_detalle(order_id):
-    po = PurchaseOrder.query.get_or_404(order_id)
-    # para cada ítem, calculamos ya despachado
+    po = PurchaseOrder.query.options(
+        joinedload(PurchaseOrder.items).joinedload(PurchaseOrderItem.product)
+    ).get_or_404(order_id)
+
+    # Detalle por ítem: solicitado / despachado / pendiente
     detail = []
     for it in po.items:
-        desp = sum(
-            e.quantity for e in it.product.dispatches
-            if e.order_number == po.number
-        )
+        # suma de despachos del mismo producto para esta OC
+        # Ajusta nombres de columnas si difieren: DispatchEntry.product_id, DispatchEntry.batch_id,
+        # DispatchBatch.id, DispatchBatch.order_number
+        desp = db.session.query(func.coalesce(func.sum(DispatchEntry.quantity), 0))\
+            .join(DispatchBatch, DispatchEntry.batch_id == DispatchBatch.id)\
+            .filter(
+                DispatchEntry.product_id == it.product_id,
+                DispatchBatch.order_number == po.number
+        ).scalar() or 0
+
         detail.append({
-            'product': it.product.name,
+            'product':    it.product.name,
             'solicitado': it.quantity,
             'despachado': desp,
             'pendiente':  it.quantity - desp
         })
-        batches = DispatchBatch.query.filter_by(
-            order_number=po.number).order_by(DispatchBatch.id.desc()).all()
 
-    # Para cada batch, trae sus entries
+    # Batches/Despachos de esta OC (FUERA del loop, siempre definido)
+    batches = DispatchBatch.query.options(
+        joinedload(DispatchBatch.user),
+        joinedload(DispatchBatch.entries).joinedload(DispatchEntry.product)
+    ).filter_by(order_number=po.number)\
+     .order_by(DispatchBatch.id.desc())\
+     .all()
+
+    # Historial de despachos
     dispatch_history = []
     for b in batches:
         dispatch_history.append({
             'batch_id': b.id,
-            'user':     b.user.name,
-            'created':  b.created_at,
+            'user':     getattr(b.user, 'name', None),
+            'created':  getattr(b, 'created_at', None),
             'items': [{
-                'product': e.product.name,
-                'brand':   e.product.brand,
+                'product': e.product.name if e.product else None,
+                'brand':   e.product.brand if e.product else None,
                 'qty':     e.quantity
             } for e in b.entries]
         })
+
     return render_template(
         'detalle_orden.html',
         order=po,
         detail=detail,
         name=session.get('name'),
         dispatch_history=dispatch_history,
-        is_Admin=session.get('is_Admin', False))
+        is_Admin=session.get('is_Admin', False)
+    )
 
 
 @app.route('/api/ordenes/<order_number>/detalle')
