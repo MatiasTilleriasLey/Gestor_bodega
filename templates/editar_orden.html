@@ -47,12 +47,28 @@
   </tr>
 </template>
 {% endblock %}
-
 {% block scripts %}
 <script>
-  // Variables globales
+  // ========= Utils =========
+  function debounce(fn, wait = 200) {
+    let t;
+    return function(...args) {
+      clearTimeout(t);
+      t = setTimeout(() => fn.apply(this, args), wait);
+    };
+  }
+
+  function showAlert(type, msg) {
+    document.getElementById('alert-placeholder').innerHTML = `
+      <div class="alert alert-${type} alert-dismissible fade show" role="alert">
+        ${msg}
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Cerrar"></button>
+      </div>`;
+  }
+
+  // ========= Estado global =========
   const itemsInit = {{ items|tojson }};
-  let rowCnt = 0;
+  let rowCnt = 0; // para IDs únicos de datalist
 
   document.addEventListener('DOMContentLoaded', () => {
     initClientAutocomplete();
@@ -60,10 +76,78 @@
     itemsInit.forEach(it => addRow(it));
   });
 
-  // Autocomplete clientes (igual que antes)...
-  function initClientAutocomplete() { /* ... */ }
+  // ========= Autocomplete Clientes =========
+  function initClientAutocomplete() {
+    const input = document.getElementById('inputClient');
+    const dlist = document.getElementById('clients_suggest');
+    if (!input || !dlist) return;
 
-  // Productos autocomplete idéntico a despacho...
+    const run = debounce(() => {
+      const q = input.value.trim();
+      dlist.innerHTML = '';
+      if (q.length < 2) return;
+      fetch(`/api/clients/suggest?q=${encodeURIComponent(q)}`)
+        .then(r => r.json())
+        .then(list => {
+          dlist.innerHTML = '';
+          list.forEach(c => {
+            const opt = document.createElement('option');
+            opt.value = c.name;
+            dlist.appendChild(opt);
+          });
+        })
+        .catch(console.error);
+    }, 200);
+
+    input.addEventListener('input', run);
+  }
+
+  // ========= Autocomplete Productos (por fila) =========
+  function fetchProductSuggestions(query) {
+    return fetch(`/api/productos/suggest?q=${encodeURIComponent(query)}`)
+      .then(r => r.json());
+  }
+
+  /**
+   * Adjunta listeners de producto a una fila:
+   * - nameIn: input de nombre del producto
+   * - dl: datalist asociado
+   * - brandIn: input de marca (se autocompleta si hay match exacto)
+   */
+  function attachProductListeners(nameIn, dl, brandIn) {
+    const localMap = {}; // nombre -> marca (cache local por input)
+
+    const run = debounce(() => {
+      const q = nameIn.value.trim();
+      if (q.length < 2) {
+        dl.innerHTML = '';
+        return;
+      }
+      fetchProductSuggestions(q)
+        .then(list => {
+          dl.innerHTML = '';
+          Object.keys(localMap).forEach(k => delete localMap[k]);
+          list.forEach(p => {
+            localMap[p.name] = p.brand;
+            const opt = document.createElement('option');
+            opt.value = p.name;
+            dl.appendChild(opt);
+          });
+          // Autorrelleno inmediato si el texto ya coincide
+          const maybe = localMap[nameIn.value];
+          if (maybe && !brandIn.value) brandIn.value = maybe;
+        })
+        .catch(console.error);
+    }, 200);
+
+    nameIn.addEventListener('input', run);
+    nameIn.addEventListener('change', () => {
+      const br = localMap[nameIn.value];
+      if (br) brandIn.value = br;
+    });
+  }
+
+  // ========= Filas =========
   function setupRow(tr, data) {
     const idFld   = tr.querySelector('.input-item-id');
     const nameIn  = tr.querySelector('.input-name');
@@ -71,27 +155,29 @@
     const brandIn = tr.querySelector('.input-brand');
     const qtyIn   = tr.querySelector('.input-qty');
 
-    // si viene data, prefijar
+    // Si viene data desde backend, prefijar
     if (data) {
-      idFld.value    = data.item_id;
-      nameIn.value   = data.product;
-      brandIn.value  = data.brand;
-      qtyIn.value    = data.quantity;
+      idFld.value    = data.item_id || '';
+      nameIn.value   = data.product || '';
+      brandIn.value  = data.brand   || '';
+      qtyIn.value    = data.quantity || 1;
+    } else {
+      qtyIn.value = qtyIn.value || 1;
     }
 
-    // assignar list/datalist dinámico
-    nameIn.setAttribute('list', `prod_suggest_${rowCnt}`);
-    dl.id = `prod_suggest_${rowCnt}`;
-    rowCnt++;
+    // Asignar list/datalist únicos
+    const myId = `prod_suggest_${rowCnt++}`;
+    nameIn.setAttribute('list', myId);
+    dl.id = myId;
 
-    // mismo listener de productos...
-    /* attachProductListeners(nameIn, dl, brandIn) */
+    // Autocomplete de productos para esta fila
+    attachProductListeners(nameIn, dl, brandIn);
   }
 
-  function addRow(data=null) {
+  function addRow(data = null) {
     const tpl   = document.getElementById('tplRow');
     const clone = tpl.content.cloneNode(true);
-    const tr    = clone.querySelector('tr');
+    const tr    = clone.querySelector('tr.fila-item');
     setupRow(tr, data);
     document.querySelector('#tablaOrden tbody').appendChild(tr);
   }
@@ -101,45 +187,58 @@
     if (tb.children.length > 1) btn.closest('tr').remove();
   }
 
-  function showAlert(type,msg){ /* igual que antes */ }
-
-  function submitEditarOrden(){
+  // ========= Envío =========
+  function submitEditarOrden() {
     const orderId = document.getElementById('orderId').value;
     const number  = document.getElementById('inputNumber').value.trim();
     const client  = document.getElementById('inputClient').value.trim();
 
-    if (!number||!client) { showAlert('warning','Número y cliente obligatorios'); return false; }
+    if (!number || !client) {
+      showAlert('warning', 'Número y cliente obligatorios');
+      return false;
+    }
 
     const items = [];
     let ok = true;
-    document.querySelectorAll('.fila-item').forEach(tr=>{
+
+    document.querySelectorAll('.fila-item').forEach(tr => {
       const itemId = tr.querySelector('.input-item-id').value || null;
       const name   = tr.querySelector('.input-name').value.trim();
       const brand  = tr.querySelector('.input-brand').value.trim();
-      const qty    = parseInt(tr.querySelector('.input-qty').value,10);
-      if (!name||!brand||isNaN(qty)||qty<1) { ok=false; }
-      items.push({ item_id: itemId, product:name, brand, quantity:qty });
+      const qtyVal = tr.querySelector('.input-qty').value;
+      const qty    = parseInt(qtyVal, 10);
+
+      if (!name || !brand || isNaN(qty) || qty < 1) {
+        ok = false;
+      }
+      items.push({ item_id: itemId, product: name, brand, quantity: qty });
     });
-    if (!ok){ showAlert('warning','Revisa las líneas'); return false; }
+
+    if (!ok) {
+      showAlert('warning', 'Revisa las líneas: nombre, marca y cantidad ≥ 1');
+      return false;
+    }
 
     fetch(`/ordenes/editar/${orderId}`, {
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({ number, client, items })
     })
-    .then(r=>r.json().then(b=>({st:r.status,b})))
-    .then(({st,b})=>{
-      if (st===200) {
-        showAlert('success',b.message);
-        setTimeout(()=>window.location.href='/ordenes',500);
+    .then(r => r.json().then(b => ({st: r.status, b})))
+    .then(({st, b}) => {
+      if (st === 200) {
+        showAlert('success', b.message || 'Orden actualizada');
+        setTimeout(() => window.location.href = '/ordenes', 600);
       } else {
-        showAlert('danger',b.error);
+        showAlert('danger', b.error || 'No se pudo actualizar la orden');
       }
     })
-    .catch(()=>showAlert('danger','Error de red'));
+    .catch(() => showAlert('danger', 'Error de red'));
+
     return false;
   }
 </script>
 {% endblock %}
+
 </body>
 </html>

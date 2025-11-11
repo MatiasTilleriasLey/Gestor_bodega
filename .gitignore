@@ -15,7 +15,7 @@ pip-selfcheck.json
 __pycache__/
 *.py[codz]
 *$py.class
-
+./instance/mydb.db
 # C extensions
 *.so
 
