@@ -10,36 +10,121 @@
     </a>
   </div>
 
-  <table class="table table-hover" id="ordersTable">
+  <div id="alertZone"></div>
+
+  <table class="table table-hover align-middle" id="ordersTable">
     <thead>
       <tr>
         <th>Número</th>
         <th>Cliente</th>
         <th>Fecha</th>
         <th>Estado</th>
-        <th>Acciones</th>
+        <th style="width:220px;">Acciones</th>
       </tr>
     </thead>
     <tbody>
       {% for o in orders %}
-      <tr>
-        <td>{{ o.number }}</td>
-        <td>{{ o.client }}</td>
-        <td>{{ o.created_at }}</td>
+      <tr data-order-id="{{ o.id }}" data-order-number="{{ o.number }}">
+        <td class="col-number">{{ o.number }}</td>
+        <td class="col-client">{{ o.client }}</td>
+        <td class="col-date">{{ o.created_at }}</td>
         <td>
           <span class="badge bg-{{ o.badge }}">{{ o.estado }}</span>
         </td>
         <td>
-          <a href="{{ url_for('orden_detalle', order_id=o.id) }}"
-             class="btn btn-sm btn-outline-info">
+          <a href="{{ url_for('orden_detalle', order_id=o.id) }}" class="btn btn-sm btn-outline-info">
             Ver detalle
           </a>
+          <button type="button" class="btn btn-sm btn-outline-danger btn-delete-order">
+            Eliminar
+          </button>
         </td>
       </tr>
       {% endfor %}
     </tbody>
   </table>
 </div>
+
+<!-- Modal confirmar eliminación -->
+<div class="modal fade" id="deleteOrderModal" tabindex="-1" aria-labelledby="deleteOrderLabel" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="deleteOrderLabel">Eliminar orden de compra</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body">
+        <p class="mb-1"><strong>Número:</strong> <span id="delOrdNumber">—</span></p>
+        <p class="mb-3"><strong>ID interno:</strong> <span id="delOrdId">—</span></p>
+        <div class="alert alert-warning mb-0">
+          Esta acción es permanente y no se puede deshacer.
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button id="confirmDeleteOrderBtn" class="btn btn-danger">Eliminar definitivamente</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function(){
+  let delOrderId = null;
+  let delModal = null;
+
+  function showAlert(type, msg){
+    const zone = document.getElementById('alertZone');
+    zone.innerHTML = `
+      <div class="alert alert-${type} alert-dismissible fade show" role="alert">
+        ${msg}
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Cerrar"></button>
+      </div>`;
+  }
+
+  // Abrir modal con datos
+  document.getElementById('ordersTable').addEventListener('click', (e) => {
+    const btn = e.target.closest('.btn-delete-order');
+    if (!btn) return;
+
+    const tr = btn.closest('tr');
+    delOrderId = parseInt(tr.dataset.orderId, 10);
+    const number = tr.dataset.orderNumber;
+
+    document.getElementById('delOrdId').textContent = delOrderId;
+    document.getElementById('delOrdNumber').textContent = number;
+
+    if (!delModal) delModal = new bootstrap.Modal(document.getElementById('deleteOrderModal'));
+    delModal.show();
+  });
+
+  // Confirmar eliminación
+  document.getElementById('confirmDeleteOrderBtn').addEventListener('click', () => {
+    if (!delOrderId) return;
+
+    fetch(`/api/ordenes/${delOrderId}`, { method: 'DELETE' })
+      .then(res => res.json().then(body => ({status: res.status, body})))
+      .then(({status, body}) => {
+        if (status === 200) {
+          // quitar fila de la tabla
+          const tr = document.querySelector(`tr[data-order-id="${delOrderId}"]`);
+          if (tr) tr.remove();
+          delModal?.hide();
+          showAlert('success', body.message || 'Orden eliminada correctamente.');
+        } else {
+          delModal?.hide();
+          showAlert('danger', body.error || 'No se pudo eliminar la orden.');
+        }
+      })
+      .catch(() => {
+        delModal?.hide();
+        showAlert('danger', 'Error de red al eliminar la orden.');
+      });
+  });
+})();
+</script>
 {% endblock %}
 </body>
 </html>

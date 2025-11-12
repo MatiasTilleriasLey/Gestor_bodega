@@ -242,11 +242,14 @@ function applyFilter() {
   renderTable(filtered);
 }
 
+// Reemplaza COMPLETO tu renderTable por este:
 function renderTable(arr) {
   const tbody = document.querySelector('#inventoryTable tbody');
   tbody.innerHTML = '';
 
-  if (isAdmin) document.getElementById('thSelect').classList.toggle('d-none', !mergeMode);
+  if (isAdmin) {
+    document.getElementById('thSelect').classList.toggle('d-none', !mergeMode);
+  }
 
   for (const p of arr) {
     const tr = document.createElement('tr');
@@ -262,10 +265,10 @@ function renderTable(arr) {
 
     tr.innerHTML = `
       ${isAdmin ? selectTd : ''}
-      <td>${p.id}</td>
-      <td>${p.name}</td>
-      <td>${p.brand}</td>
-      <td>${p.stock}</td>
+      <td data-col="id">${p.id}</td>
+      <td data-col="name">${p.name}</td>
+      <td data-col="brand">${p.brand}</td>
+      <td data-col="stock">${p.stock}</td>
       ${isAdmin ? `
         <td>
           <button class="btn btn-sm btn-outline-primary" onclick="editProduct(${p.id})" ${mergeMode ? 'disabled' : ''}>Editar</button>
@@ -281,7 +284,6 @@ function renderTable(arr) {
     tbody.addEventListener('change', onRowSelectChange);
   }
 }
-
 // ==================== MODO FUSIÓN ====================
 function updateMergeUI() {
   const startBtn = document.getElementById('startMergeBtn');
@@ -667,11 +669,59 @@ document.getElementById('doDeleteBtn')?.addEventListener('click', () => {
 // ==================== INICIO ====================
 window.addEventListener('DOMContentLoaded', loadInventory);
 
-// Placeholder para “Editar” si lo usas
 function editProduct(id) {
-  // navega o abre modal de edición según tu app
-  window.location.href = `/productos/${id}/editar`;
+  const tr = document.querySelector(`#inventoryTable tr[data-id="${id}"]`);
+  if (!tr) return;
+
+  const tdName  = tr.querySelector('td[data-col="name"]');
+  const tdBrand = tr.querySelector('td[data-col="brand"]');
+  const tdStock = tr.querySelector('td[data-col="stock"]');
+
+  const newName  = prompt('Nuevo nombre:', tdName?.textContent ?? '');
+  if (newName === null) return;
+
+  const newBrand = prompt('Nueva marca:', tdBrand?.textContent ?? '');
+  if (newBrand === null) return;
+
+  const stockStr = prompt('Nuevo stock (≥0):', tdStock?.textContent ?? '0');
+  if (stockStr === null) return;
+
+  const newStock = parseInt(stockStr, 10);
+  if (isNaN(newStock) || newStock < 0) {
+    alert('Stock inválido');
+    return;
+  }
+
+  fetch(`/api/productos/${id}`, {
+    method: 'PUT',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({
+      name:  newName.trim(),
+      brand: newBrand.trim(),
+      stock: newStock
+    })
+  })
+  .then(res => res.json().then(body => ({status: res.status, body})))
+  .then(({status, body}) => {
+    if (status === 200) {
+      // Actualiza celdas visibles
+      tdName.textContent  = body.product.name;
+      tdBrand.textContent = body.product.brand;
+      tdStock.textContent = body.product.stock;
+
+      // Sincroniza el array en memoria
+      const idx = inventory.findIndex(p => String(p.id) === String(id));
+      if (idx !== -1) inventory[idx] = body.product;
+    } else {
+      alert(body.error || 'No se pudo actualizar el producto');
+    }
+  })
+  .catch(err => {
+    console.error(err);
+    alert('Error de red. Intenta de nuevo.');
+  });
 }
+
 </script>
 {% endblock %}
 </body>

@@ -1,5 +1,5 @@
 from flask import jsonify, request, session
-from datetime import datetime
+from datetime import datetime, timedelta
 from flask import Flask, render_template, jsonify, redirect, url_for
 from flask import request
 from flask import session, abort
@@ -8,6 +8,7 @@ from database.db import Users, Product, InventoryEntry, IngresoBatch
 from database.db import DispatchBatch, DispatchEntry, Client, Log
 from database.db import PurchaseOrder, PurchaseOrderItem
 from functools import wraps
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import joinedload
 from sqlalchemy import func
@@ -26,6 +27,15 @@ ALLOWED_TAGS = []
 ALLOWED_ATTRS = {}
 
 init_db(app)
+
+
+def _parse_dmy(s: str):
+    """Convierte 'dd/mm/aaaa' a datetime a las 00:00; devuelve None si no aplica."""
+    try:
+        d = datetime.strptime(s.strip(), "%d/%m/%Y")
+        return d
+    except Exception:
+        return None
 
 
 def _to_iso(dt):
@@ -318,39 +328,52 @@ def logout():
     return redirect(url_for('index'))
 
 
-@app.route('/api/ingresos/historico')
+@app.route('/api/ingresos/historico', methods=['GET'])
 @login_required
 def api_ingresos_historico():
-    # Lectura de params opcionales
-    start = request.args.get('start')  # e.g. '2025-07-01'
-    end = request.args.get('end')    # e.g. '2025-07-13'
-    query = IngresoBatch.query
+    """
+    Devuelve cabeceras de ingresos (IngresoBatch) con sus items.
+    Parámetros opcionales:
+      - start=dd/mm/aaaa
+      - end=dd/mm/aaaa   (se incluye hasta las 23:59:59 del día)
+    """
+    start_s = request.args.get('start', '')
+    end_s = request.args.get('end', '')
 
-    if start:
-        query = query.filter(IngresoBatch.created_at >= f"{start} 00:00:00")
-    if end:
-        query = query.filter(IngresoBatch.created_at <= f"{end} 23:59:59")
+    q = IngresoBatch.query.options(
+        joinedload(IngresoBatch.user),  # b.user puede ser None
+        joinedload(IngresoBatch.entries).joinedload(InventoryEntry.product)
+    ).order_by(IngresoBatch.id.desc())
 
-    batches = query.order_by(IngresoBatch.created_at.desc()).all()
+    start_dt = _parse_dmy(start_s)
+    end_dt = _parse_dmy(end_s)
+    if start_dt:
+        q = q.filter(IngresoBatch.created_at >= start_dt)
+    if end_dt:
+        q = q.filter(IngresoBatch.created_at < (end_dt + timedelta(days=1)))
+
+    batches = q.all()
 
     result = []
     for b in batches:
+        user_name = getattr(getattr(b, 'user', None), 'name', None) or "—"
+        items = [{
+            'entry_id': e.id,
+            'product':  {
+                'name':  getattr(e.product, 'name',  None),
+                'brand': getattr(e.product, 'brand', None)
+            },
+            'quantity': e.quantity
+        } for e in (b.entries or [])]
+
         result.append({
             'batch_id':   b.id,
-            'user':       {'username': b.user.name},
-            'created_at': b.created_at.isoformat(),
-            'items': [
-                {
-                    'entry_id': e.id,
-                    'product':  {
-                      'name': e.product.name,
-                      'brand': e.product.brand
-                      },
-                    'quantity': e.quantity
-                } for e in b.entries
-            ]
+            'user':       {'username': user_name},
+            'created_at': (b.created_at.isoformat() if getattr(b, 'created_at', None) else None),
+            'items':      items
         })
-    return jsonify(result)
+
+    return jsonify(result), 200
 
 
 @app.route('/dashboard')
@@ -1711,6 +1734,62 @@ def orden_detalle(order_id):
         dispatch_history=dispatch_history,
         is_Admin=session.get('is_Admin', False)
     )
+
+
+@app.route('/api/ordenes/<int:order_id>', methods=['DELETE'])
+@login_required
+def eliminar_orden(order_id):
+    """
+    Elimina una orden de compra y sus ítems.
+    Antes, quita la relación con despachos (no borra los despachos).
+    """
+    po = PurchaseOrder.query.get(order_id)
+    if not po:
+        return jsonify({'error': 'Orden no encontrada'}), 404
+
+    try:
+        # 1) Desasociar despachos que apunten a esta OC
+        #    Soporta tanto order_id como order_number según tu esquema.
+        #    (Actualiza solo si el atributo existe)
+        # --- DispatchBatch (cabeceras de despacho)
+        if 'order_id' in DispatchBatch.__table__.columns:
+            (db.session.query(DispatchBatch)
+             .filter(DispatchBatch.order_id == po.id)
+             .update({DispatchBatch.order_id: None}, synchronize_session=False))
+        if 'order_number' in DispatchBatch.__table__.columns:
+            (db.session.query(DispatchBatch)
+             .filter(DispatchBatch.order_number == po.number)
+             .update({DispatchBatch.order_number: None}, synchronize_session=False))
+
+        # --- DispatchEntry (líneas de despacho), por si también guardas el vínculo aquí
+        if 'order_id' in DispatchEntry.__table__.columns:
+            (db.session.query(DispatchEntry)
+             .filter(DispatchEntry.order_id == po.id)
+             .update({DispatchEntry.order_id: None}, synchronize_session=False))
+        if 'order_number' in DispatchEntry.__table__.columns:
+            (db.session.query(DispatchEntry)
+             .filter(DispatchEntry.order_number == po.number)
+             .update({DispatchEntry.order_number: None}, synchronize_session=False))
+
+        # 2) Borrar los ítems de la OC (evita violar NOT NULL en purchase_order_items.order_id)
+        db.session.query(PurchaseOrderItem)\
+                  .filter(PurchaseOrderItem.order_id == po.id)\
+                  .delete(synchronize_session=False)
+
+        # 3) Borrar la OC
+        db.session.delete(po)
+        db.session.commit()
+
+        return jsonify({'message': 'Orden eliminada y despachos desasociados.'}), 200
+
+    except IntegrityError as e:
+        db.session.rollback()
+        # Mensaje útil para debug
+        return jsonify({'error': 'No se pudo eliminar por restricciones de integridad.',
+                        'detail': str(e.orig)}), 409
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': 'Error interno al eliminar la orden.'}), 500
 
 
 @app.route('/api/ordenes/<order_number>/detalle')

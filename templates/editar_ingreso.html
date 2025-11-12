@@ -25,12 +25,12 @@
 <template id="tplRow">
   <tr class="fila-item">
     <td>
-      <input list="" class="form-control input-name">
+      <input list="" class="form-control input-name" autocomplete="off">
       <datalist></datalist>
       <input type="hidden" class="input-entry-id">
     </td>
-    <td><input type="text" class="form-control input-brand"></td>
-    <td><input type="number" class="form-control input-qty" min="0"></td>
+    <td><input type="text" class="form-control input-brand" autocomplete="off"></td>
+    <td><input type="number" class="form-control input-qty" min="0" value="0"></td>
     <td><button type="button" class="btn btn-sm btn-danger" onclick="removeRow(this)">−</button></td>
   </tr>
 </template>
@@ -38,13 +38,70 @@
 
 {% block scripts %}
 <script>
+  // ---------- Datos iniciales ----------
   const initialItems = {{ items|tojson }};
   let rowCnt = 0;
 
   document.addEventListener('DOMContentLoaded', () => {
-    initialItems.forEach(it => addRow(it));
+    if (!Array.isArray(initialItems) || !initialItems.length) addRow();
+    else initialItems.forEach(it => addRow(it));
   });
 
+  // ---------- Utilidades ----------
+  // Debounce simple para evitar hits excesivos al endpoint de sugerencias
+  function debounce(fn, wait=200) {
+    let t;
+    return (...args) => {
+      clearTimeout(t);
+      t = setTimeout(() => fn.apply(null, args), wait);
+    };
+  }
+
+  // Fetch de sugerencias de productos: [{name, brand}, ...]
+  function fetchProductSuggestions(query, datalistEl, map) {
+    fetch(`/api/productos/suggest?q=${encodeURIComponent(query)}`)
+      .then(r => r.json())
+      .then(list => {
+        datalistEl.innerHTML = '';
+        Object.keys(map).forEach(k => delete map[k]);
+        (list || []).forEach(p => {
+          map[p.name] = p.brand || '';
+          const opt = document.createElement('option');
+          opt.value = p.name;
+          datalistEl.appendChild(opt);
+        });
+      })
+      .catch(() => { /* silencio */ });
+  }
+
+  // Engancha listeners de autocompletado a una fila
+  function attachProductAutocomplete(nameInput, datalistEl, brandInput) {
+    const suggestionMap = {}; // nombre -> marca
+
+    const doSuggest = debounce(() => {
+      const q = nameInput.value.trim();
+      if (q.length < 2) {
+        datalistEl.innerHTML = '';
+        return;
+      }
+      fetchProductSuggestions(q, datalistEl, suggestionMap);
+    }, 180);
+
+    nameInput.addEventListener('input', () => {
+      doSuggest();
+      // si el valor coincide exactamente con una sugerencia, completar marca
+      const b = suggestionMap[nameInput.value];
+      if (b !== undefined) brandInput.value = b;
+    });
+
+    // Al perder foco, si coincide exacto, setea marca; si no, no toca.
+    nameInput.addEventListener('change', () => {
+      const b = suggestionMap[nameInput.value];
+      if (b !== undefined) brandInput.value = b;
+    });
+  }
+
+  // ---------- Construcción de filas ----------
   function setupRow(tr, data) {
     const idFld = tr.querySelector('.input-entry-id');
     const nm    = tr.querySelector('.input-name');
@@ -63,7 +120,8 @@
     nm.setAttribute('list', `prod_suggest_${idx}`);
     dl.id = `prod_suggest_${idx}`;
 
-    // autocomplete productos (igual que en despachos)...
+    // Autocomplete productos con autorrelleno de marca
+    attachProductAutocomplete(nm, dl, br);
   }
 
   function addRow(data=null){
@@ -79,6 +137,7 @@
     if (tb.children.length>1) btn.closest('tr').remove();
   }
 
+  // ---------- UI helper ----------
   function showAlert(type,msg){
     document.getElementById('alert-placeholder').innerHTML = `
       <div class="alert alert-${type} alert-dismissible fade show" role="alert">
@@ -87,6 +146,7 @@
       </div>`;
   }
 
+  // ---------- Submit ----------
   function submitEditarIngresos(){
     const items = [];
     let ok = true;
@@ -99,7 +159,7 @@
       items.push({ entry_id: eid, product:name, brand, quantity:qty });
     });
     if (!ok){
-      showAlert('warning','Revisa las líneas');
+      showAlert('warning','Revisa las líneas: nombre, marca y cantidad (≥ 0) son obligatorios.');
       return false;
     }
 
@@ -112,10 +172,10 @@
     .then(async res => {
       const b = await res.json();
       if (res.ok){
-        showAlert('success', b.message);
+        showAlert('success', b.message || 'Ingreso actualizado');
         setTimeout(()=>window.location.href='/ingresos/historicos',800);
       } else {
-        showAlert('danger', b.error);
+        showAlert('danger', b.error || 'No se pudo guardar');
       }
     })
     .catch(()=>showAlert('danger','Error de red'));
@@ -124,6 +184,6 @@
   }
 </script>
 {% endblock %}
-
 </body>
 </html>
+
