@@ -178,10 +178,20 @@ def _pdf_add_table(pdf: FPDF, headers, rows):
         pdf.cell(w, 8, h, border=1)
     pdf.ln()
     pdf.set_font("Helvetica", "", 9)
+
+    line_h = 6
     for row in rows:
+        texts = [_wrap_pdf_text(val, width=35) for val in row]
+        line_counts = [max(1, len(t.split("\n"))) for t in texts]
+        height = line_h * max(line_counts)
+        x0 = pdf.get_x()
+        y0 = pdf.get_y()
+        offset = 0
         for idx, (_, w) in enumerate(scaled):
-            pdf.multi_cell(w, 8, _wrap_pdf_text(row[idx], width=30), border=1, ln=3, max_line_height=8)
-        pdf.ln()
+            pdf.set_xy(x0 + offset, y0)
+            pdf.multi_cell(w, line_h, texts[idx], border=1)
+            offset += w
+        pdf.set_xy(x0, y0 + height)
     pdf.ln(3)
 
 
