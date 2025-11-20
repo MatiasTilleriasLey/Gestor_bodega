@@ -137,11 +137,15 @@ def _allowed_file(filename: str) -> bool:
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_IMAGE_EXT
 
 
+def _pdf_sanitize(text):
+    s = "-" if text in (None, "") else str(text)
+    s = s.replace("—", "-")
+    return s.encode('latin-1', 'replace').decode('latin-1')
+
+
 def _wrap_pdf_text(text, width=50):
     import textwrap
-    if text is None:
-        return "—"
-    s = str(text)
+    s = _pdf_sanitize(text)
     return "\n".join(textwrap.fill(s, width=width, break_long_words=True, break_on_hyphens=False).splitlines())
 
 
