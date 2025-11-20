@@ -32,3 +32,18 @@ function login(){
     xhr.send(JSON.stringify(login_data));
 
 }
+
+// Permitir submit con Enter en los campos de login
+document.addEventListener('DOMContentLoaded', () => {
+  const userInput = document.getElementById('username');
+  const passInput = document.getElementById('password');
+  [userInput, passInput].forEach(el => {
+    if (!el) return;
+    el.addEventListener('keydown', (ev) => {
+      if (ev.key === 'Enter') {
+        ev.preventDefault();
+        login();
+      }
+    });
+  });
+});
