@@ -216,3 +216,7 @@ __marimo__/
 .vscode/
 migrations/
 templates/*.bak
+
+# Local data and docs
+instance/
+AGENTS.md

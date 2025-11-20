@@ -1,19 +1,36 @@
-from flask import jsonify, request, session
-from datetime import datetime, timedelta
-from flask import Flask, render_template, jsonify, redirect, url_for
-from flask import request
-from flask import session, abort
-from database.db import init_db, db
-from database.db import Users, Product, InventoryEntry, IngresoBatch
-from database.db import DispatchBatch, DispatchEntry, Client, Log
-from database.db import PurchaseOrder, PurchaseOrderItem
-from functools import wraps
-from sqlalchemy.exc import IntegrityError
-from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy.orm import joinedload
-from sqlalchemy import func
-import bleach
 import json
+from datetime import datetime, timedelta
+from functools import wraps
+
+import bleach
+from flask import (
+    Flask,
+    abort,
+    jsonify,
+    redirect,
+    render_template,
+    request,
+    session,
+    url_for,
+)
+from sqlalchemy import func
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
+from sqlalchemy.orm import joinedload
+
+from database.db import (
+    Client,
+    DispatchBatch,
+    DispatchEntry,
+    InventoryEntry,
+    IngresoBatch,
+    Log,
+    Product,
+    PurchaseOrder,
+    PurchaseOrderItem,
+    Users,
+    db,
+    init_db,
+)
 
 app = Flask(__name__)
 
@@ -25,6 +42,31 @@ app.config.from_mapping(
 
 ALLOWED_TAGS = []
 ALLOWED_ATTRS = {}
+
+
+def clean_text(value: str) -> str:
+    """Sanitize incoming text fields with shared bleach rules."""
+    return bleach.clean(
+        (value or '').strip(),
+        tags=ALLOWED_TAGS,
+        attributes=ALLOWED_ATTRS,
+        strip=True
+    )
+
+
+def get_json_body(default=None):
+    """Safe JSON loader with predictable default."""
+    return request.get_json(silent=True) or (default if default is not None else {})
+
+
+def render_view(template_name: str, **context):
+    """Render templates injecting session identity helpers."""
+    base_context = {
+        'name': session.get('name'),
+        'is_Admin': session.get('is_Admin', False)
+    }
+    base_context.update(context)
+    return render_template(template_name, **base_context)
 
 init_db(app)
 
@@ -47,6 +89,9 @@ def _to_iso(dt):
     return dt  # ya es str o None
 
 
+# --------------------------------------------------------------------------- #
+# Session context & decorators
+# --------------------------------------------------------------------------- #
 @app.context_processor
 def inject_globals():
     return {
@@ -78,29 +123,9 @@ def admin_required(f):
     return decorated_function
 
 
-def changePassword(data, user):
-
-    default_pwd = "changeme123"
-    # 7) Asignar y persistir
-    try:
-        user.password = default_pwd    # usa tu setter para hashear
-        db.session.add(Log(
-            user_id=session['user_id'],
-            action='change_password',
-            target_table='users',
-            target_id=user.id,
-            details=None
-        ))
-        db.session.commit()
-        return jsonify(
-            {"message": "Contraseña actualizada correctamente"}
-        ), 200
-
-    except SQLAlchemyError:
-        db.session.rollback()
-        return jsonify({"error": "Error al actualizar la contraseña"}), 500
-
-
+# --------------------------------------------------------------------------- #
+# Auth bootstrap & onboarding
+# --------------------------------------------------------------------------- #
 @app.before_request
 def ensure_first_user():
     # Solo si no hay ningún usuario registrado
@@ -117,15 +142,15 @@ def setup():
         return redirect(url_for('login'))
 
     if request.method == 'GET':
-        return render_template('setup.html')
+        return render_view('setup.html')
 
     # POST: recibe JSON con name, username, email, password, password2
-    data = request.get_json(silent=True) or {}
-    name = (data.get('name') or '').strip()
-    username = (data.get('username') or '').strip()
-    email = (data.get('email') or '').strip()
-    password = (data.get('password') or '')
-    password2 = (data.get('password2') or '')
+    data = get_json_body()
+    name = clean_text(data.get('name'))
+    username = clean_text(data.get('username'))
+    email = clean_text(data.get('email'))
+    password = data.get('password') or ''
+    password2 = data.get('password2') or ''
 
     # Validaciones mínimas
     if not all([name, username, email, password, password2]):
@@ -159,39 +184,37 @@ def setup():
 def index():
     if 'user_id' in session:
         return redirect(url_for('dashboard'))  # asume que tienes esta ruta
-    return render_template('index.html')
+    return render_view('index.html')
 
 
 @app.route('/logs')
 @login_required
 def logs_page():
-    return render_template('logs.html',
-                           name=session.get('name'),
-                           is_Admin=session.get('is_Admin', False))
+    return render_view('logs.html')
 
 
+# --------------------------------------------------------------------------- #
+# Perfil y configuración de cuenta
+# --------------------------------------------------------------------------- #
 @app.route('/perfil', methods=['GET'])
 @login_required
 def perfil():
     # obtenemos el usuario logueado
     user = Users.query.get_or_404(session['user_id'])
-    return render_template(
-        'perfil.html',
-        username=user.username,
-        name=user.name,
-        is_Admin=session.get('is_Admin', False),
-        email=user.email
-    )
+    return render_view('perfil.html',
+                       username=user.username,
+                       name=user.name,
+                       email=user.email)
 
 
 @app.route('/api/perfil', methods=['POST'])
 @login_required
 def api_actualizar_perfil():
     user = Users.query.get_or_404(session['user_id'])
-    data = request.get_json(silent=True) or {}
+    data = get_json_body()
     # Validar campos
-    name = data.get('name', '').strip()
-    email = data.get('email', '').strip()
+    name = clean_text(data.get('name'))
+    email = clean_text(data.get('email'))
     if not name or not email:
         return jsonify(error="Nombre y email son obligatorios"), 400
 
@@ -209,7 +232,7 @@ def api_actualizar_perfil():
 @login_required
 def api_cambiar_password():
     user = Users.query.get_or_404(session['user_id'])
-    data = request.get_json(silent=True) or {}
+    data = get_json_body()
     old = data.get('old_pass', '')
     new = data.get('new_pass', '')
     rep = data.get('repet_new_pass', '')
@@ -274,7 +297,7 @@ def api_logs():
 @app.route('/perfil/theme', methods=['POST'])
 @login_required
 def perfil_theme():
-    data = request.get_json(silent=True) or {}
+    data = get_json_body()
     theme = data.get('theme')
     if theme not in ('dark', 'light'):
         return jsonify(error="Tema inválido"), 400
@@ -288,7 +311,7 @@ def perfil_theme():
 
 @app.route('/api/login', methods=["POST"])
 def login():
-    data = request.get_json(silent=True)
+    data = get_json_body()
     if not data:
         return jsonify({"error": "JSON inválido"}), 400
 
@@ -328,6 +351,9 @@ def logout():
     return redirect(url_for('index'))
 
 
+# --------------------------------------------------------------------------- #
+# Ingresos y visualización de inventario
+# --------------------------------------------------------------------------- #
 @app.route('/api/ingresos/historico', methods=['GET'])
 @login_required
 def api_ingresos_historico():
@@ -379,17 +405,13 @@ def api_ingresos_historico():
 @app.route('/dashboard')
 @login_required
 def dashboard():
-    return render_template("dashboard.html")
+    return render_view("dashboard.html")
 
 
 @app.route('/inventario')
 @login_required
 def inventario():
-    return render_template(
-        "inventario.html",
-        name=session.get('name'),
-        is_Admin=session.get('is_Admin', False)
-    )
+    return render_view("inventario.html")
 
 
 @app.route('/api/productos/<int:product_id>/usage', methods=['GET'])
@@ -423,15 +445,6 @@ def api_get_product_usage(product_id):
     }), 200
 
 # === 1) Referencias DETALLADAS por producto ===
-
-
-def _to_iso(dt):
-    if isinstance(dt, datetime):
-        try:
-            return dt.isoformat(sep=' ', timespec='seconds')
-        except Exception:
-            return dt.isoformat()
-    return dt  # ya es str o None
 
 
 @app.route('/api/productos/<int:product_id>/refs_detail', methods=['GET'])
@@ -560,7 +573,7 @@ def api_product_refs_delete(product_id):
     if not p:
         return jsonify(error="Producto no encontrado"), 404
 
-    data = request.get_json(silent=True) or {}
+    data = get_json_body()
     inv_ids = set(map(int, data.get("inventory_entry_ids", []) or []))
     dsp_ids = set(map(int, data.get("dispatch_entry_ids", []) or []))
     poi_ids = set(map(int, data.get("purchase_order_item_ids", []) or []))
@@ -674,7 +687,7 @@ def api_merge_products():
     - Suma stock de sources al target.
     - Elimina products de sources.
     """
-    data = request.get_json(silent=True) or {}
+    data = get_json_body()
     try:
         target_id = int(data.get('target_id'))
     except (TypeError, ValueError):
@@ -699,14 +712,12 @@ def api_merge_products():
         return jsonify(error=f"Producto destino {target_id} no existe"), 404
 
     # opcionalmente renombrar destino
-    new_name = (data.get('new_name') or '').strip()
-    new_brand = (data.get('new_brand') or '').strip()
+    new_name = clean_text(data.get('new_name'))
+    new_brand = clean_text(data.get('new_brand'))
     if new_name:
-        target.name = bleach.clean(
-            new_name, tags=[], attributes={}, strip=True)
+        target.name = new_name
     if new_brand:
-        target.brand = bleach.clean(
-            new_brand, tags=[], attributes={}, strip=True)
+        target.brand = new_brand
 
     # cargar fuentes
     src_objs = Product.query.filter(Product.id.in_(sources)).all()
@@ -769,24 +780,16 @@ def api_merge_products():
 @login_required
 def ingresos_historicos():
     if request.method == "GET":
-        return render_template(
-            "ingresos_historicos.html",
-            name=session.get('name'),
-            is_Admin=session.get('is_Admin', False)
-        )
+        return render_view("ingresos_historicos.html")
 
 
 @app.route('/ingresos/nuevo', methods=["GET", "POST"])
 @login_required
 def ingresos():
     if request.method == "GET":
-        return render_template(
-            "ingresos.html",
-            name=session.get('name'),
-            is_Admin=session.get('is_Admin', False)
-        )
+        return render_view("ingresos.html")
 
-    payload = request.get_json(silent=True) or {}
+    payload = get_json_body()
     items = payload.get('items') or [{
         'name':     payload.get('name', ''),
         'brand':    payload.get('brand', ''),
@@ -814,18 +817,8 @@ def ingresos():
                 error=f"Ítem {idx}: 'quantity' debe ser entero"
             ), 400
 
-        name = bleach.clean(
-            raw_name.strip(),
-            tags=ALLOWED_TAGS,
-            attributes=ALLOWED_ATTRS,
-            strip=True
-        )
-        brand = bleach.clean(
-            raw_brand.strip(),
-            tags=ALLOWED_TAGS,
-            attributes=ALLOWED_ATTRS,
-            strip=True
-        )
+        name = clean_text(raw_name)
+        brand = clean_text(raw_brand)
 
         if not name or not brand or qty <= 0:
             return jsonify(error=f"Ítem {idx}: faltan campos o qty≤0"), 400
@@ -890,14 +883,10 @@ def ingreso_batch_editar(batch_id):
     } for e in batch.entries]
 
     if request.method == 'GET':
-        return render_template(
-            'editar_ingreso.html',
-            batch_id=batch.id,
-            items=items
-        )
+        return render_view('editar_ingreso.html', batch_id=batch.id, items=items)
 
     # 2) POST JSON: client no cambia en ingresos, solo los items
-    data = request.get_json(silent=True) or {}
+    data = get_json_body()
     items_new = data.get('items') or []
     if not isinstance(items_new, list) or not items_new:
         return jsonify(error="Envíe lista de items"), 400
@@ -916,14 +905,12 @@ def ingreso_batch_editar(batch_id):
             if not rawn or not rawb or not isinstance(qty, int) or qty < 0:
                 return jsonify(error=f"Línea {idx+1} inválida"), 400
 
-            name = bleach.clean(rawn, tags=ALLOWED_TAGS,
-                                attributes=ALLOWED_ATTRS, strip=True)
-            brand = bleach.clean(rawb, tags=ALLOWED_TAGS,
-                                 attributes=ALLOWED_ATTRS, strip=True)
+            name = clean_text(rawn)
+            brand = clean_text(rawb)
             # buscar producto existente
             prod = Product.query.filter(
-                Product.name.ilike(f"%{rawn}%"),
-                Product.brand.ilike(f"%{rawb}%")
+                Product.name.ilike(f"%{name}%"),
+                Product.brand.ilike(f"%{brand}%")
             ).first()
             if not prod:
                 prod = Product(name=name, brand=brand, stock=0)
@@ -970,31 +957,28 @@ def ingreso_batch_editar(batch_id):
         return jsonify(error="Error interno"), 500
 
 
+# --------------------------------------------------------------------------- #
+# Despachos (salidas de inventario)
+# --------------------------------------------------------------------------- #
 @app.route('/despachos/nuevo', methods=['GET', 'POST'])
 @login_required
 def nuevos_despachos():
     if request.method == 'GET':
-        return render_template(
-            'despachos.html',
-            name=session.get('name'),
-            is_Admin=session.get('is_Admin', False)
-        )
+        return render_view('despachos.html')
 
     # POST JSON
-    data = request.get_json(silent=True) or {}
-    client_name = data.get('client', '').strip()
+    data = get_json_body()
+    client_name = clean_text(data.get('client'))
     items = data.get('items') or []
-    order_number = data.get('order_number')  # puede ser None o cadena
+    order_number = clean_text(data.get('order_number'))
 
     # 1) Validar cliente
     if not client_name:
         return jsonify(error="Debes indicar el nombre del cliente"), 400
 
-    client_clean = bleach.clean(client_name, tags=ALLOWED_TAGS,
-                                attributes=ALLOWED_ATTRS, strip=True)
-    client = Client.query.filter(Client.name.ilike(client_clean)).first()
+    client = Client.query.filter(Client.name.ilike(client_name)).first()
     if not client:
-        client = Client(name=client_clean)
+        client = Client(name=client_name)
         db.session.add(client)
         db.session.flush()
 
@@ -1015,11 +999,7 @@ def nuevos_despachos():
     db.session.flush()   # para obtener batch.id
 
     # 4) Si viene número de orden, sanitizarlo
-    if order_number:
-        order_number = bleach.clean(order_number.strip(),
-                                    tags=[], attributes={}, strip=True)
-    else:
-        order_number = None
+    order_number = order_number or None
 
     for idx, it in enumerate(items):
         raw_name = it.get('name', '')
@@ -1030,10 +1010,8 @@ def nuevos_despachos():
         if not isinstance(qty, int) or qty <= 0:
             return jsonify(error=f"Item {idx}: 'quantity' debe ser entero >0"), 400
 
-        name = bleach.clean(raw_name.strip(),  tags=ALLOWED_TAGS,
-                            attributes=ALLOWED_ATTRS, strip=True)
-        brand = bleach.clean(raw_brand.strip(), tags=ALLOWED_TAGS,
-                             attributes=ALLOWED_ATTRS, strip=True)
+        name = clean_text(raw_name)
+        brand = clean_text(raw_brand)
         if not name or not brand:
             return jsonify(error=f"Item {idx}: faltan 'name' o 'brand'"), 400
 
@@ -1110,9 +1088,7 @@ def nuevos_despachos():
 @login_required
 def historico_despachos():
     # Vista HTML
-    return render_template('despachos_historicos.html',
-                           name=session.get('name'),
-                           is_Admin=session.get('is_Admin', False))
+    return render_view('despachos_historicos.html')
 
 
 @app.route('/despachos/editar/<int:batch_id>', methods=['GET', 'POST'])
@@ -1129,37 +1105,31 @@ def despacho_editar(batch_id):
             'brand': e.product.brand,
             'quantity': e.quantity
         } for e in batch.entries]
-        return render_template(
-            'editar_despacho.html',
-            batch_id=batch.id,
-            client_name=batch.client.name,
-            order_number=batch.order_number,
-            items=items
-        )
+        return render_view('editar_despacho.html',
+                           batch_id=batch.id,
+                           client_name=batch.client.name,
+                           order_number=batch.order_number,
+                           items=items)
 
     # POST JSON
-    data = request.get_json(silent=True) or {}
-    cli_raw = (data.get('client') or '').strip()
-    ord_raw = (data.get('order_number') or '').strip() or None
+    data = get_json_body()
+    cli_raw = clean_text(data.get('client'))
+    ord_raw = clean_text(data.get('order_number'))
     items_data = data.get('items') or []
 
-    batch.order_number = bleach.clean(
-        ord_raw, tags=[], attributes={}, strip=True) if ord_raw else None
+    batch.order_number = ord_raw or None
     # Validaciones básicas
     if not cli_raw or not isinstance(items_data, list) or not items_data:
         return jsonify(error="Datos incompletos"), 400
 
     # Sanitizar y buscar/crear cliente (igual que antes)...
-    cli_clean = bleach.clean(cli_raw, tags=ALLOWED_TAGS,
-                             attributes=ALLOWED_ATTRS, strip=True)
-    client = Client.query.filter(Client.name.ilike(cli_clean)).first()
+    client = Client.query.filter(Client.name.ilike(cli_raw)).first()
     if not client:
-        client = Client(name=cli_clean)
+        client = Client(name=cli_raw)
         db.session.add(client)
         db.session.flush()
     batch.client_id = client.id
-    batch.order_number = bleach.clean(
-        ord_raw, tags=[], attributes={}, strip=True) if ord_raw else None
+    batch.order_number = ord_raw or None
 
     # Mapear entradas existentes
     existing = {e.id: e for e in batch.entries}
@@ -1177,10 +1147,8 @@ def despacho_editar(batch_id):
                 return jsonify(error=f"Línea {idx+1} inválida"), 400
 
             # Sanitizar
-            name = bleach.clean(raw_n,  tags=ALLOWED_TAGS,
-                                attributes=ALLOWED_ATTRS, strip=True)
-            brand = bleach.clean(raw_b, tags=ALLOWED_TAGS,
-                                 attributes=ALLOWED_ATTRS, strip=True)
+            name = clean_text(raw_n)
+            brand = clean_text(raw_b)
 
             # Buscar producto
             prod = Product.query.filter(
@@ -1198,10 +1166,7 @@ def despacho_editar(batch_id):
                 new_stock = prod.stock + delta
 
                 if new_stock < 0:
-                    return jsonify(
-                        error=f"Línea {
-                            idx+1}: no hay suficiente stock para reducir despacho"
-                    ), 400
+                    return jsonify(error=f"Línea {idx+1}: no hay suficiente stock para reducir despacho"), 400
 
                 # Aplicar cambios
                 entry.quantity = new_qty
@@ -1211,10 +1176,7 @@ def despacho_editar(batch_id):
             else:
                 # Es una línea nueva: decrementar stock en consecuencia
                 if prod.stock < new_qty:
-                    return jsonify(
-                        error=f"Línea {
-                            idx+1}: no hay suficiente stock para despachar {new_qty}"
-                    ), 400
+                    return jsonify(error=f"Línea {idx+1}: no hay suficiente stock para despachar {new_qty}"), 400
                 prod.stock -= new_qty
 
                 # Crear nueva entrada
@@ -1332,10 +1294,10 @@ def api_inventario():
 @app.route('/api/productos/<int:id>', methods=['PUT'])
 @admin_required
 def api_update_product(id):
-    data = request.get_json(silent=True) or {}
+    data = get_json_body()
     # Extraer y validar
-    name = data.get('name', '').strip()
-    brand = data.get('brand', '').strip()
+    name = clean_text(data.get('name'))
+    brand = clean_text(data.get('brand'))
     stock = data.get('stock', None)
     if not name or not brand or not isinstance(stock, int) or stock < 0:
         return jsonify(
@@ -1360,47 +1322,36 @@ def api_update_product(id):
             'id': prod.id,
             'name': prod.name,
             'brand': prod.brand,
-            'stock': prod.stock
+        'stock': prod.stock
         }
     ), 200
 
 
+# --------------------------------------------------------------------------- #
+# Administración de usuarios
+# --------------------------------------------------------------------------- #
 @app.route('/usuarios')
 @admin_required
 def usuarios():
-    if 'user_id' not in session:
-        return redirect(url_for('index'))  # asume que tienes esta ruta
     users = Users.query.order_by(Users.username).all()
-    return render_template(
-        "usuarios.html",
-        name=session.get('name'),
-        is_Admin=session.get('is_Admin', False),
-        users=users
-    )
+    return render_view("usuarios.html", users=users)
 
 
 @app.route('/usuarios/editar/<id>', methods=["GET", "POST"])
 @admin_required
 def usuarios_edit(id):
-    if 'user_id' not in session:
-        return redirect(url_for('index'))  # asume que tienes esta ruta
     user = Users.query.get(id)
     if not user:
         abort(404)
     if request.method == "GET":
-        return render_template("editar.html",
-                               user_id=id,
-                               name=session.get('name'),
-                               is_Admin=session.get('is_Admin', False),
-                               user=user
-                               )
+        return render_view("editar.html", user_id=id, user=user)
     if request.method == "POST":
-        data = request.get_json(silent=True)
+        data = get_json_body()
         if not data:
             return jsonify({"error": "JSON inválido"}), 400
         try:
-            user.name = data["name"]
-            user.email = data["email"]
+            user.name = clean_text(data.get("name"))
+            user.email = clean_text(data.get("email"))
             user.is_Admin = bool(data["is_Admin"])
             db.session.add(Log(
                 user_id=session['user_id'],
@@ -1449,8 +1400,6 @@ def usuarios_edit_password(id):
 @app.route('/usuarios/eliminar/<id>', methods=["POST"])
 @admin_required
 def usuarios_delete(id):
-    if 'user_id' not in session:
-        return redirect(url_for('index'))  # asume que tienes esta ruta
     user = Users.query.get(id)
     if not user:
         abort(404)
@@ -1476,15 +1425,16 @@ def usuarios_delete(id):
 @app.route('/usuarios/crear', methods=["POST"])
 @admin_required
 def usuarios_crear():
-    if 'user_id' not in session:
-        return redirect(url_for('index'))  # asume que tienes esta ruta
     try:
-        data = request.get_json(silent=True)
+        data = get_json_body()
+        required = ("username", "password", "email", "name")
+        if not all(data.get(field) for field in required):
+            return jsonify({"error": "Faltan campos obligatorios"}), 400
         new_user = Users(
-            username=data["username"],
-            password=data["password"],
-            email=data["email"],
-            name=data["name"],
+            username=clean_text(data.get("username")),
+            password=data.get("password"),
+            email=clean_text(data.get("email")),
+            name=clean_text(data.get("name")),
             is_Admin=bool(data["is_Admin"])
         )
         db.session.add(new_user)
@@ -1507,6 +1457,9 @@ def usuarios_crear():
     return jsonify({"message": "Usuario Creado Correctamente"}), 200
 
 
+# --------------------------------------------------------------------------- #
+# Órdenes de compra
+# --------------------------------------------------------------------------- #
 @app.route('/ordenes', methods=['GET'])
 @login_required
 def ordenes_listado():
@@ -1540,27 +1493,18 @@ def ordenes_listado():
             'badge':       badge
         })
 
-    return render_template(
-        'ordenes.html',
-        orders=orders,
-        name=session.get('name'),
-        is_Admin=session.get('is_Admin', False)
-    )
+    return render_view('ordenes.html', orders=orders)
 
 
 @app.route('/ordenes/nuevo', methods=['POST', 'GET'])
 @login_required
 def ordenes_nuevo():
     if request.method == 'GET':
-        return render_template(
-            'nueva_orden.html',
-            name=session.get('name'),
-            is_Admin=session.get('is_Admin', False)
-        )
+        return render_view('nueva_orden.html')
 
-    data = request.get_json(silent=True) or {}
-    number = data.get('number', '').strip()
-    client_name = data.get('client', '').strip()
+    data = get_json_body()
+    number = clean_text(data.get('number'))
+    client_name = clean_text(data.get('client'))
     items = data.get('items') or []
 
     # Validaciones básicas
@@ -1572,9 +1516,8 @@ def ordenes_nuevo():
         return jsonify(error="Debes enviar un array 'items' con al menos un producto"), 400
 
     # Sanitizar inputs
-    number_clean = bleach.clean(number, tags=[], attributes={}, strip=True)
-    client_clean = bleach.clean(
-        client_name, tags=[], attributes={}, strip=True)
+    number_clean = number
+    client_clean = client_name
 
     # Verificar unicidad del número
     if PurchaseOrder.query.filter_by(number=number_clean).first():
@@ -1605,10 +1548,8 @@ def ordenes_nuevo():
                 return jsonify(error=f"Línea {idx+1}: 'quantity' debe ser entero > 0"), 400
 
             # Sanitizar campos
-            name = bleach.clean(
-                raw_name.strip(),  tags=ALLOWED_TAGS, attributes=ALLOWED_ATTRS, strip=True)
-            brand = bleach.clean(
-                raw_brand.strip(), tags=ALLOWED_TAGS, attributes=ALLOWED_ATTRS, strip=True)
+            name = clean_text(raw_name)
+            brand = clean_text(raw_brand)
             if not name or not brand:
                 db.session.rollback()
                 return jsonify(error=f"Línea {idx+1}: faltan 'name' o 'brand'"), 400
@@ -1726,13 +1667,11 @@ def orden_detalle(order_id):
             } for e in b.entries]
         })
 
-    return render_template(
+    return render_view(
         'detalle_orden.html',
         order=po,
         detail=detail,
-        name=session.get('name'),
-        dispatch_history=dispatch_history,
-        is_Admin=session.get('is_Admin', False)
+        dispatch_history=dispatch_history
     )
 
 
@@ -1838,22 +1777,18 @@ def ordenes_editar(order_id):
             'quantity':   it.quantity
         } for it in po.items]
 
-        return render_template(
+        return render_view(
             'editar_orden.html',
             order_number=po.number,
             client_name=po.client.name,
             items=items,
-            order_id=po.id,
-            name=session.get('name'),
-            is_Admin=session.get('is_Admin', False)
+            order_id=po.id
         )
 
     # POST: procesar JSON de edición
-    data = request.get_json(silent=True) or {}
-    number_new = bleach.clean(
-        (data.get('number') or '').strip(), tags=[], attributes={}, strip=True)
-    client_new = bleach.clean(
-        (data.get('client') or '').strip(), tags=[], attributes={}, strip=True)
+    data = get_json_body()
+    number_new = clean_text(data.get('number'))
+    client_new = clean_text(data.get('client'))
     items_data = data.get('items') or []
 
     if not number_new or not client_new or not isinstance(items_data, list):
@@ -1887,10 +1822,8 @@ def ordenes_editar(order_id):
         if not raw_n or not raw_b or not isinstance(qty, int) or qty <= 0:
             return jsonify(error=f"Línea {idx+1} inválida"), 400
 
-        name = bleach.clean(raw_n.strip(),  tags=ALLOWED_TAGS,
-                            attributes=ALLOWED_ATTRS, strip=True)
-        brand = bleach.clean(raw_b.strip(), tags=ALLOWED_TAGS,
-                             attributes=ALLOWED_ATTRS, strip=True)
+        name = clean_text(raw_n)
+        brand = clean_text(raw_b)
 
         # buscar o crear producto
         prod = Product.query.filter(
@@ -1941,12 +1874,12 @@ def ordenes_editar(order_id):
 
 @app.errorhandler(404)
 def not_found(error):
-    return render_template('404.html'), 404
+    return render_view('404.html'), 404
 
 
 @app.errorhandler(500)
 def server_error(error):
-    return render_template('500.html'), 500
+    return render_view('500.html'), 500
 
 
 if __name__ == '__main__':
