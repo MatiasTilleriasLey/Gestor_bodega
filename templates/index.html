@@ -2,32 +2,33 @@
 {% block title %}Login · Bodega{% endblock %}
 {% set show_nav = False %}
 {% block content %}
-  <div class="container">
-    <br>
-    <div class="alert alert-danger" role="alert" style="display: none" id="error">A simple danger alert—check it out!</div>
-    <center>
-      <h1>Sistema de bodega</h1>
-    </center>
-    <div class="card">
-      <div class="card-header"><center> Login</center></div>
-      <div class="card-body">
-        <div class="input-group flex-nowrap">
-          <span class="input-group-text" id="addon-wrapping">
-            <i class="bi bi-person-circle"></i>
-          </span>
-          <input type="text" class="form-control" placeholder="Username" id="username" required>
+  <div class="auth-shell container">
+    <div class="row justify-content-center">
+      <div class="col-md-6 col-lg-5">
+        <div class="text-center mb-4">
+          <h1 class="h3 fw-bold">Sistema de Bodega</h1>
+          <p class="text-muted mb-0">Ingresa con tu usuario para continuar.</p>
         </div>
-        <br>
-        <div class="input-group flex-nowrap">
-          <span class="input-group-text" id="addon-wrapping">
-            <i class="bi bi-key-fill"></i>
-          </span>
-          <input type="password" class="form-control" placeholder="Password" id="password" required>
+        <div class="card p-4">
+          <div class="alert alert-danger" role="alert" id="error" style="display:none"></div>
+          <div class="mb-3">
+            <label class="form-label">Usuario</label>
+            <div class="input-group flex-nowrap">
+              <span class="input-group-text"><i class="bi bi-person-circle"></i></span>
+              <input type="text" class="form-control" placeholder="Username" id="username" required>
+            </div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Contraseña</label>
+            <div class="input-group flex-nowrap">
+              <span class="input-group-text"><i class="bi bi-key-fill"></i></span>
+              <input type="password" class="form-control" placeholder="Password" id="password" required>
+            </div>
+          </div>
+          <div class="d-grid">
+            <button type="button" class="btn btn-primary" onclick="login()">Ingresar</button>
+          </div>
         </div>
-        <br>
-        <div class="d-grid gap-2">
-          <button type="button" class="btn btn-primary" onclick="login()">Login</button>
-        </div>  
       </div>
     </div>
   </div>
