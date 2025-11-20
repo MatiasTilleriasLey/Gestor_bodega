@@ -137,6 +137,14 @@ def _allowed_file(filename: str) -> bool:
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_IMAGE_EXT
 
 
+def _wrap_pdf_text(text, width=50):
+    import textwrap
+    if text is None:
+        return "—"
+    s = str(text)
+    return "\n".join(textwrap.fill(s, width=width, break_long_words=True, break_on_hyphens=False).splitlines())
+
+
 def _pdf_header(pdf: FPDF, title: str):
     pdf.set_font("Helvetica", "B", 16)
     pdf.cell(0, 10, title, ln=1)
@@ -150,7 +158,7 @@ def _pdf_add_keyvals(pdf: FPDF, pairs):
     for label, value in pairs:
         pdf.cell(label_w, 8, f"{label}:", border=0)
         width = max(25, avail - label_w)
-        pdf.multi_cell(width, 8, str(value or "—"), border=0)
+        pdf.multi_cell(width, 8, _wrap_pdf_text(value, width=40), border=0)
     pdf.ln(2)
 
 
@@ -161,14 +169,14 @@ def _pdf_add_table(pdf: FPDF, headers, rows):
     scale = avail / total_w if total_w > avail else 1
     scaled = [(h, w * scale) for h, w in headers]
 
-    pdf.set_font("Helvetica", "B", 10)
+    pdf.set_font("Helvetica", "B", 9)
     for h, w in scaled:
         pdf.cell(w, 8, h, border=1)
     pdf.ln()
-    pdf.set_font("Helvetica", "", 10)
+    pdf.set_font("Helvetica", "", 9)
     for row in rows:
         for idx, (_, w) in enumerate(scaled):
-            pdf.cell(w, 8, str(row[idx]), border=1)
+            pdf.multi_cell(w, 8, _wrap_pdf_text(row[idx], width=30), border=1, ln=3, max_line_height=8)
         pdf.ln()
     pdf.ln(3)
 
