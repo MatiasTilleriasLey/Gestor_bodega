@@ -17,7 +17,8 @@ from flask import (
     send_file,
     url_for,
 )
-from fpdf import FPDF
+from fpdf import FPDF, HTMLMixin
+from fpdf.enums import XPos, YPos
 from werkzeug.utils import secure_filename
 from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
@@ -54,6 +55,10 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 ALLOWED_IMAGE_EXT = {'png', 'jpg', 'jpeg', 'webp'}
 
 
+class PDF(FPDF, HTMLMixin):
+    pass
+
+
 def clean_text(value: str) -> str:
     """Sanitize incoming text fields with shared bleach rules."""
     return bleach.clean(
@@ -77,6 +82,7 @@ def render_view(template_name: str, **context):
     }
     base_context.update(context)
     return render_template(template_name, **base_context)
+
 
 init_db(app)
 
@@ -149,84 +155,131 @@ def _wrap_pdf_text(text, width=50):
     return "\n".join(textwrap.fill(s, width=width, break_long_words=True, break_on_hyphens=False).splitlines())
 
 
-def _pdf_header(pdf: FPDF, title: str):
+def _pdf_header(pdf: PDF, title: str):
     pdf.set_font("Helvetica", "B", 16)
-    pdf.cell(0, 10, title, ln=1)
+    pdf.cell(
+        0,
+        10,
+        _pdf_sanitize(title),
+        new_x=XPos.LMARGIN,
+        new_y=YPos.NEXT,   # reemplaza ln=1
+    )
     pdf.ln(2)
     pdf.set_font("Helvetica", "", 11)
 
 
 def _pdf_add_keyvals(pdf: FPDF, pairs):
-    max_width = max(20, pdf.w - pdf.l_margin - pdf.r_margin - 2)
+    if not pairs:
+        return
+
+    html = "<table border='1' width='100%' cellspacing='0' cellpadding='4'><tbody>"
     for label, value in pairs:
-        line = _pdf_sanitize(f"{label}: {value if value not in (None, '') else '-'}")
-        wrapped = _wrap_pdf_text(line, width=60)
-        pdf.multi_cell(max_width, 8, wrapped, border=0)
-    pdf.ln(1)
+        safe_label = _pdf_sanitize(label)
+        safe_value = _pdf_sanitize(
+            value if value not in (None, '') else '-')
+        html += "<tr>"
+        html += f"<td width='35%'><b>{safe_label}</b></td>"
+        html += f"<td width='65%'>{safe_value}</td>"
+        html += "</tr>"
+    html += "</tbody></table>"
+
+    pdf.write_html(html)
+    pdf.ln(4)
 
 
-def _pdf_add_table(pdf: FPDF, headers, rows):
-    # Ajustar ancho total disponible
-    avail = pdf.w - pdf.l_margin - pdf.r_margin
-    total_w = sum(w for _, w in headers)
-    scale = avail / total_w if total_w > avail else 1
-    scaled = [(h, w * scale) for h, w in headers]
+def _pdf_add_table_html(pdf: PDF, headers, rows):
+    """
+    Tabla alineada usando HTML básico.
+    headers: lista de strings
+    rows: lista de listas de strings
+    """
+    html = "<table border='1' width='100%'><thead><tr>"
 
-    pdf.set_font("Helvetica", "B", 9)
-    for h, w in scaled:
-        pdf.cell(w, 8, h, border=1)
-    pdf.ln()
-    pdf.set_font("Helvetica", "", 9)
+    for h in headers:
+        html += f"<th>{_pdf_sanitize(h)}</th>"
 
-    line_h = 6
+    html += "</tr></thead><tbody>"
+
     for row in rows:
-        texts = [_wrap_pdf_text(val, width=35) for val in row]
-        line_counts = [max(1, len(t.split("\n"))) for t in texts]
-        height = line_h * max(line_counts)
-        x0 = pdf.get_x()
-        y0 = pdf.get_y()
-        offset = 0
-        for idx, (_, w) in enumerate(scaled):
-            pdf.set_xy(x0 + offset, y0)
-            pdf.multi_cell(w, line_h, texts[idx], border=1)
-            offset += w
-        pdf.set_xy(x0, y0 + height)
-    pdf.ln(3)
+        html += "<tr>"
+        for col in row:
+            html += f"<td>{_pdf_sanitize(str(col))}</td>"
+        html += "</tr>"
+
+    html += "</tbody></table>"
+
+    pdf.write_html(html)
+    pdf.ln(4)
 
 
-def _pdf_add_photos(pdf: FPDF, photos):
+def _pdf_add_photos(pdf: PDF, photos):
     if not photos:
-        pdf.cell(0, 8, "Sin fotos adjuntas.", ln=1)
+        pdf.cell(
+            0,
+            8,
+            "Sin fotos adjuntas.",
+            new_x=XPos.LMARGIN,
+            new_y=YPos.NEXT,  # reemplaza ln=1
+        )
         pdf.ln(2)
         return
+
     stage_order = ['salida', 'entrega']
     grouped = {s: [] for s in stage_order}
     for p in photos:
         grouped.setdefault(p.stage, []).append(p)
+
     for stage in stage_order:
         plist = grouped.get(stage, [])
         if not plist:
             continue
         pdf.set_font("Helvetica", "B", 12)
-        pdf.cell(0, 8, f"Fotos {stage}", ln=1)
+        pdf.cell(
+            0,
+            8,
+            _pdf_sanitize(f"Fotos {stage}"),
+            new_x=XPos.LMARGIN,
+            new_y=YPos.NEXT,
+        )
         pdf.set_font("Helvetica", "", 11)
         for p in plist:
             path = os.path.join(app.root_path, 'static', p.path)
             if os.path.exists(path):
-                pdf.cell(0, 6, _to_iso(p.created_at) or "", ln=1)
+                pdf.cell(
+                    0,
+                    6,
+                    _pdf_sanitize(_to_iso(p.created_at) or ""),
+                    new_x=XPos.LMARGIN,
+                    new_y=YPos.NEXT,
+                )
                 try:
                     avail = pdf.w - pdf.l_margin - pdf.r_margin
                     pdf.image(path, w=min(150, avail))
+                    pdf.ln(4)
                 except Exception:
-                    pdf.cell(0, 6, f"[No se pudo cargar la imagen {p.path}]", ln=1)
+                    pdf.cell(
+                        0,
+                        6,
+                        _pdf_sanitize(
+                            f"[No se pudo cargar la imagen {p.path}]"),
+                        new_x=XPos.LMARGIN,
+                        new_y=YPos.NEXT,
+                    )
             else:
-                pdf.cell(0, 6, f"[Archivo faltante: {p.path}]", ln=1)
+                pdf.cell(
+                    0,
+                    6,
+                    _pdf_sanitize(f"[Archivo faltante: {p.path}]"),
+                    new_x=XPos.LMARGIN,
+                    new_y=YPos.NEXT,
+                )
         pdf.ln(4)
-
 
 # --------------------------------------------------------------------------- #
 # Auth bootstrap & onboarding
 # --------------------------------------------------------------------------- #
+
+
 @app.before_request
 def ensure_first_user():
     # Solo si no hay ningún usuario registrado
@@ -545,7 +598,8 @@ def dashboard():
         db.session.query(
             Client.name.label('client'),
             func.count(DispatchBatch.id).label('despachos'),
-            func.coalesce(func.sum(DispatchEntry.quantity), 0).label('unidades')
+            func.coalesce(func.sum(DispatchEntry.quantity),
+                          0).label('unidades')
         )
         .join(DispatchBatch, DispatchBatch.client_id == Client.id)
         .outerjoin(DispatchEntry, DispatchEntry.batch_id == DispatchBatch.id)
@@ -1517,7 +1571,8 @@ def api_despacho_fotos(batch_id):
         return jsonify(error="Formato no permitido"), 400
 
     ext = file.filename.rsplit('.', 1)[1].lower()
-    fname = secure_filename(f"dispatch_{batch.id}_{stage}_{int(time.time())}.{ext}")
+    fname = secure_filename(f"dispatch_{batch.id}_{stage}_{
+                            int(time.time())}.{ext}")
     rel_path = f"uploads/{fname}"
     save_path = os.path.join(UPLOAD_DIR, fname)
     os.makedirs(UPLOAD_DIR, exist_ok=True)  # por si la carpeta fue eliminada
@@ -1549,71 +1604,110 @@ def api_despacho_fotos(batch_id):
 
 
 def _build_dispatch_pdf(batch: DispatchBatch):
-    pdf = FPDF()
+    pdf = PDF()
     pdf.set_auto_page_break(True, margin=15)
     pdf.add_page()
+
     _pdf_header(pdf, f"Despacho #{batch.id}")
     _pdf_add_keyvals(pdf, [
         ("Cliente", getattr(batch.client, 'name', '')),
         ("Operador", getattr(batch.user, 'name', '')),
-        ("Fecha", batch.created_at.strftime('%d/%m/%Y %H:%M') if batch.created_at else ''),
+        ("Fecha", batch.created_at.strftime(
+            '%d/%m/%Y %H:%M') if batch.created_at else ''),
         ("Orden #", getattr(batch, 'order_number', '') or '—'),
     ])
+
+    # Tabla de productos usando HTML (alineado)
     items = []
     for e in batch.entries:
         items.append([
             getattr(e.product, 'name', ''),
             getattr(e.product, 'brand', ''),
-            e.quantity
+            str(e.quantity),
         ])
-    _pdf_add_table(pdf, [("Producto", 70), ("Marca", 50), ("Cantidad", 30)], items)
-    photos = DispatchPhoto.query.filter_by(batch_id=batch.id).order_by(DispatchPhoto.created_at).all()
+
+    _pdf_add_table_html(pdf, ["Producto", "Marca", "Cantidad"], items)
+
+    # Fotos
+    photos = DispatchPhoto.query.filter_by(
+        batch_id=batch.id).order_by(DispatchPhoto.created_at).all()
     _pdf_add_photos(pdf, photos)
-    data = pdf.output(dest='S')
+
+    # dest está deprecado; output() ahora devuelve bytes directamente
+    data = pdf.output()
     if isinstance(data, bytearray):
         return bytes(data)
     return data
 
 
 def _build_order_pdf(order: PurchaseOrder):
-    pdf = FPDF()
+    pdf = PDF()
     pdf.set_auto_page_break(True, margin=15)
     pdf.add_page()
+
     _pdf_header(pdf, f"Orden de compra #{order.number}")
     _pdf_add_keyvals(pdf, [
         ("Cliente", getattr(order.client, 'name', '')),
-        ("Fecha creación", order.created_at.strftime('%d/%m/%Y %H:%M') if order.created_at else '')
+        ("Fecha creación", order.created_at.strftime(
+            '%d/%m/%Y %H:%M') if order.created_at else '')
     ])
+
+    # Tabla de ítems de la orden
     items = []
     for it in order.items:
-        items.append([it.product.name, it.product.brand, it.quantity])
-    _pdf_add_table(pdf, [("Producto", 70), ("Marca", 50), ("Cantidad", 30)], items)
+        items.append([
+            getattr(it.product, 'name', ''),
+            getattr(it.product, 'brand', ''),
+            str(it.quantity),
+        ])
 
-    # Despachos asociados a la orden
+    _pdf_add_table_html(pdf, ["Producto", "Marca", "Cantidad"], items)
+
+    # Despachos asociados
     batches = DispatchBatch.query.options(
         joinedload(DispatchBatch.entries).joinedload(DispatchEntry.product),
         joinedload(DispatchBatch.photos)
     ).filter_by(order_number=order.number).all()
 
     if not batches:
-        pdf.cell(0, 8, "Sin despachos asociados.", ln=1)
+        pdf.cell(
+            0,
+            8,
+            _pdf_sanitize("Sin despachos asociados."),
+            new_x=XPos.LMARGIN,
+            new_y=YPos.NEXT,
+        )
     else:
         for b in batches:
             pdf.set_font("Helvetica", "B", 13)
-            pdf.cell(0, 10, f"Despacho #{b.id}", ln=1)
+            pdf.cell(
+                0,
+                10,
+                _pdf_sanitize(f"Despacho #{b.id}"),
+                new_x=XPos.LMARGIN,
+                new_y=YPos.NEXT,
+            )
             pdf.set_font("Helvetica", "", 11)
             _pdf_add_keyvals(pdf, [
                 ("Cliente", getattr(b.client, 'name', '')),
                 ("Operador", getattr(b.user, 'name', '')),
-                ("Fecha", b.created_at.strftime('%d/%m/%Y %H:%M') if b.created_at else '')
+                ("Fecha", b.created_at.strftime(
+                    '%d/%m/%Y %H:%M') if b.created_at else '')
             ])
+
             b_items = []
             for e in b.entries:
-                b_items.append([getattr(e.product, 'name', ''), getattr(e.product, 'brand', ''), e.quantity])
-            _pdf_add_table(pdf, [("Producto", 70), ("Marca", 50), ("Cantidad", 30)], b_items)
+                b_items.append([
+                    getattr(e.product, 'name', ''),
+                    getattr(e.product, 'brand', ''),
+                    str(e.quantity),
+                ])
+
+            _pdf_add_table_html(
+                pdf, ["Producto", "Marca", "Cantidad"], b_items)
             _pdf_add_photos(pdf, b.photos)
 
-    data = pdf.output(dest='S')
+    data = pdf.output()
     if isinstance(data, bytearray):
         return bytes(data)
     return data
@@ -1682,7 +1776,7 @@ def api_update_product(id):
             'id': prod.id,
             'name': prod.name,
             'brand': prod.brand,
-        'stock': prod.stock
+            'stock': prod.stock
         }
     ), 200
 
