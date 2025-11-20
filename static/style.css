@@ -48,14 +48,33 @@ a { text-decoration: none; }
   border: 1px solid var(--card-border);
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
   color: var(--text-primary);
+  border-radius: 14px;
+}
+
+.card .card-header {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.02);
 }
 
 .table {
   color: var(--text-primary);
+  border-color: var(--card-border);
+  border-radius: 12px;
+  overflow: hidden;
+  background: rgba(15, 23, 42, 0.9);
 }
 
 .table thead {
   color: #cbd5e1;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.table-striped > tbody > tr:nth-of-type(odd) {
+  background-color: rgba(255, 255, 255, 0.02);
+}
+
+.table-hover tbody tr:hover {
+  background: rgba(13, 110, 253, 0.08);
 }
 
 .form-control,
@@ -93,6 +112,14 @@ a { text-decoration: none; }
 .page-header h1 {
   margin: 0;
   font-weight: 700;
+}
+
+.table-wrapper {
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 14px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
+  padding: 1rem;
 }
 
 .badge {
