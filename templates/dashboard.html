@@ -63,6 +63,19 @@
           </div>
         </div>
       </div>
+
+      <div class="col-md-3 col-sm-6">
+        <div class="card h-100 shadow-sm">
+          <div class="card-body">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+              <span class="text-muted">Despachos registrados</span>
+              <i class="bi bi-truck-front text-secondary"></i>
+            </div>
+            <div class="display-6 fw-bold">{{ stats.despachos_batches|default(0) }}</div>
+            <p class="text-muted small mb-0">Cantidad total de despachos emitidos</p>
+          </div>
+        </div>
+      </div>
     </div>
 
     <div class="row g-3 mt-2">
@@ -106,6 +119,75 @@
         </div>
       </div>
     </div>
+
+    <div class="row g-3 mt-2">
+      <div class="col-lg-8">
+        <div class="card h-100 shadow-sm">
+          <div class="card-body">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+              <span class="text-muted">Despachos por día (14 días)</span>
+              <i class="bi bi-graph-up-arrow text-primary"></i>
+            </div>
+            <canvas id="despachosChart" height="110"></canvas>
+          </div>
+        </div>
+      </div>
+      <div class="col-lg-4">
+        <div class="card h-100 shadow-sm">
+          <div class="card-body">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+              <span class="text-muted">Top 3 clientes por despachos</span>
+              <i class="bi bi-trophy text-warning"></i>
+            </div>
+            <ol class="list-group list-group-flush">
+              {% for item in stats.top_clients %}
+              <li class="list-group-item d-flex justify-content-between align-items-center">
+                <div>
+                  <div class="fw-semibold">{{ item.client }}</div>
+                  <small class="text-muted">Despachos: {{ item.despachos|default(0) }}</small>
+                </div>
+                <span class="badge text-bg-primary">{{ item.unidades|default(0) }} uds</span>
+              </li>
+              {% else %}
+              <li class="list-group-item text-muted">Sin datos de despachos todavía.</li>
+              {% endfor %}
+            </ol>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.6/dist/chart.umd.min.js" integrity="sha384-8eM5EJihl56agUD8FUbfh2ANe5LAoUePNCkbBuqigaz13vfy5XQDPjDRmkjg0Nk9" crossorigin="anonymous"></script>
+  <script>
+    (function () {
+      const ctx = document.getElementById('despachosChart');
+      if (!ctx) return;
+      const data = {{ stats.dispatch_series | default([]) | tojson }};
+      const labels = data.map(d => d.day);
+      const values = data.map(d => d.count);
+      new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels,
+          datasets: [{
+            label: 'Despachos',
+            data: values,
+            backgroundColor: 'rgba(13,110,253,0.5)',
+            borderColor: 'rgba(13,110,253,1)',
+            borderWidth: 1,
+            borderRadius: 4
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          scales: {
+            y: { beginAtZero: true, ticks: { precision: 0 } }
+          }
+        }
+      });
+    })();
+  </script>
 </body>
 </html>

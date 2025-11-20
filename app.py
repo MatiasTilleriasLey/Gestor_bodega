@@ -407,13 +407,50 @@ def api_ingresos_historico():
 def dashboard():
     # KPIs básicos de operación
     total_products = db.session.query(func.count(Product.id)).scalar() or 0
-    total_stock = db.session.query(func.coalesce(func.sum(Product.stock), 0)).scalar() or 0
+    total_stock = db.session.query(
+        func.coalesce(func.sum(Product.stock), 0)).scalar() or 0
     total_ingresos = db.session.query(
         func.coalesce(func.sum(InventoryEntry.quantity), 0)).scalar() or 0
     total_despachos = db.session.query(
         func.coalesce(func.sum(DispatchEntry.quantity), 0)).scalar() or 0
-    total_clientes = db.session.query(
-        func.count(Client.id)).scalar() or 0
+    total_despachos_batches = db.session.query(
+        func.count(DispatchBatch.id)).scalar() or 0
+    total_clientes = db.session.query(func.count(Client.id)).scalar() or 0
+
+    # Serie de despachos por día (últimos 14 días)
+    cutoff = datetime.utcnow() - timedelta(days=13)
+    dispatch_series = (
+        db.session.query(
+            func.date(DispatchBatch.created_at).label('day'),
+            func.count(DispatchBatch.id).label('count')
+        )
+        .filter(DispatchBatch.created_at >= cutoff)
+        .group_by(func.date(DispatchBatch.created_at))
+        .order_by(func.date(DispatchBatch.created_at))
+        .all()
+    )
+    dispatch_series = [{'day': str(row.day), 'count': row.count}
+                       for row in dispatch_series]
+
+    # Top 3 clientes por volumen despachado
+    top_clients = (
+        db.session.query(
+            Client.name.label('client'),
+            func.count(DispatchBatch.id).label('despachos'),
+            func.coalesce(func.sum(DispatchEntry.quantity), 0).label('unidades')
+        )
+        .join(DispatchBatch, DispatchBatch.client_id == Client.id)
+        .outerjoin(DispatchEntry, DispatchEntry.batch_id == DispatchBatch.id)
+        .group_by(Client.id)
+        .order_by(func.coalesce(func.sum(DispatchEntry.quantity), 0).desc())
+        .limit(3)
+        .all()
+    )
+    top_clients = [
+        {'client': row.client, 'despachos': row.despachos,
+            'unidades': row.unidades}
+        for row in top_clients
+    ]
 
     # Estado de órdenes de compra
     orders = PurchaseOrder.query.options(
@@ -442,9 +479,12 @@ def dashboard():
         'stock_total': total_stock,
         'ingresos': total_ingresos,
         'despachos': total_despachos,
+        'despachos_batches': total_despachos_batches,
         'clientes': total_clientes,
         'ordenes': len(orders),
-        'ordenes_status': status_totals
+        'ordenes_status': status_totals,
+        'dispatch_series': dispatch_series,
+        'top_clients': top_clients
     }
     return render_view("dashboard.html", stats=stats)
 
