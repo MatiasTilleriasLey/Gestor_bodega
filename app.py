@@ -417,20 +417,27 @@ def dashboard():
         func.count(DispatchBatch.id)).scalar() or 0
     total_clientes = db.session.query(func.count(Client.id)).scalar() or 0
 
-    # Serie de despachos por día (últimos 14 días)
-    cutoff = datetime.utcnow() - timedelta(days=13)
-    dispatch_series = (
+    # Serie de despachos por día (últimos 14 días) fija en longitud
+    today = datetime.utcnow().date()
+    start_date = today - timedelta(days=13)
+    dispatch_rows = (
         db.session.query(
             func.date(DispatchBatch.created_at).label('day'),
             func.count(DispatchBatch.id).label('count')
         )
-        .filter(DispatchBatch.created_at >= cutoff)
+        .filter(DispatchBatch.created_at >= start_date)
         .group_by(func.date(DispatchBatch.created_at))
         .order_by(func.date(DispatchBatch.created_at))
         .all()
     )
-    dispatch_series = [{'day': str(row.day), 'count': row.count}
-                       for row in dispatch_series]
+    dispatch_map = {str(row.day): row.count for row in dispatch_rows}
+    dispatch_series = [
+        {
+            'day': (start_date + timedelta(days=offset)).isoformat(),
+            'count': dispatch_map.get((start_date + timedelta(days=offset)).isoformat(), 0)
+        }
+        for offset in range(14)
+    ]
 
     # Top 3 clientes por volumen despachado
     top_clients = (

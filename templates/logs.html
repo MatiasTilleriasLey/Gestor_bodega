@@ -1,6 +1,5 @@
-{% include 'header.html' %}
-<body>
-{% include 'nav.html' %}
+{% extends 'base.html' %}
+{% block title %}Logs · Bodega{% endblock %}
 {% block content %}
 <div class="container mt-4">
   <h2>Logs de Actividad</h2>
@@ -40,7 +39,6 @@
   </table>
 </div>
 {% endblock %}
-
 {% block scripts %}
 <script>
   // referencias a filtros
@@ -107,6 +105,3 @@
   document.addEventListener('DOMContentLoaded', loadLogs);
 </script>
 {% endblock %}
-
-</body>
-</html>

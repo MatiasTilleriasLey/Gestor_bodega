@@ -1,6 +1,6 @@
-{% include 'header.html' %}
-<body>
-{% include 'nav.html' %}
+{% extends 'base.html' %}
+{% block title %}Editar usuario · Bodega{% endblock %}
+{% block content %}
 <div class="container">
   <br>
   <h2>Editar Usuario</h2>
@@ -35,6 +35,8 @@
         onclick="edit_user({{user.id}})"
       >Submit</button>
   </div>
+{% endblock %}
+
+{% block scripts %}
   <script src="{{ url_for('static', filename='edit_user.js') }}"></script>
-</body>
-</html>
+{% endblock %}

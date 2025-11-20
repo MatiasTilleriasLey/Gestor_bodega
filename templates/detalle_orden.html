@@ -1,7 +1,5 @@
-{% include 'header.html' %}
-<body>
-{% include 'nav.html' %}
-
+{% extends 'base.html' %}
+{% block title %}Orden {{ order.number }} · Bodega{% endblock %}
 {% block content %}
 <div class="container mt-4" style="max-width:700px;">
   <h2>Orden {{ order.number }}</h2>
@@ -83,5 +81,3 @@
 {% endif %}
 </div>
 {% endblock %}
-</body>
-</html>

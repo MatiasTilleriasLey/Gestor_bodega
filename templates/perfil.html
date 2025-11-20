@@ -1,6 +1,5 @@
-{% include 'header.html' %}
-<body>
-{% include 'nav.html' %}
+{% extends 'base.html' %}
+{% block title %}Perfil · Bodega{% endblock %}
 {% block content %}
 <div class="container mt-4" style="max-width:600px;">
   <h2>Mi Perfil</h2>
@@ -48,7 +47,7 @@
   <input type="checkbox" id="toggleTheme" {% if session.get('theme')=='light' %}checked{% endif %}>
   Light theme
 </label>
-</div>
+ </div>
 {% endblock %}
 
 {% block scripts %}
@@ -114,5 +113,3 @@
   }
 </script>
 {% endblock %}
-</body>
-</html>

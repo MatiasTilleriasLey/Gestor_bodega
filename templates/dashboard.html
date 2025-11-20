@@ -1,7 +1,6 @@
-{% include 'header.html' %}
-<body>
-  {% include 'nav.html' %}
-
+{% extends 'base.html' %}
+{% block title %}Dashboard · Bodega{% endblock %}
+{% block content %}
   <div class="container py-4">
     <div class="d-flex align-items-center justify-content-between mb-3">
       <div>
@@ -128,7 +127,7 @@
               <span class="text-muted">Despachos por día (14 días)</span>
               <i class="bi bi-graph-up-arrow text-primary"></i>
             </div>
-            <canvas id="despachosChart" height="110"></canvas>
+            <canvas id="despachosChart" class="w-100" height="140" style="max-height:260px;"></canvas>
           </div>
         </div>
       </div>
@@ -157,37 +156,59 @@
       </div>
     </div>
   </div>
+{% endblock %}
 
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.6/dist/chart.umd.min.js" integrity="sha384-8eM5EJihl56agUD8FUbfh2ANe5LAoUePNCkbBuqigaz13vfy5XQDPjDRmkjg0Nk9" crossorigin="anonymous"></script>
-  <script>
-    (function () {
-      const ctx = document.getElementById('despachosChart');
-      if (!ctx) return;
-      const data = {{ stats.dispatch_series | default([]) | tojson }};
-      const labels = data.map(d => d.day);
-      const values = data.map(d => d.count);
-      new Chart(ctx, {
-        type: 'bar',
-        data: {
-          labels,
-          datasets: [{
-            label: 'Despachos',
-            data: values,
-            backgroundColor: 'rgba(13,110,253,0.5)',
-            borderColor: 'rgba(13,110,253,1)',
-            borderWidth: 1,
-            borderRadius: 4
-          }]
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          scales: {
-            y: { beginAtZero: true, ticks: { precision: 0 } }
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.6/dist/chart.umd.min.js"></script>
+<script>
+  (function () {
+    const ctx = document.getElementById('despachosChart');
+    if (!ctx) return;
+    const raw = {{ stats.dispatch_series | default([]) | tojson }};
+    const data = Array.isArray(raw) ? raw.slice(-14) : [];
+    if (!data.length) return;
+
+    const labels = data.map(d => new Date(d.day).toLocaleDateString());
+    const values = data.map(d => Number(d.count) || 0);
+    const maxValue = Math.max(...values, 0);
+    const yMax = Math.max(5, Math.ceil(maxValue + 1));
+    const step = Math.max(1, Math.ceil(yMax / 5));
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+
+    // limpiar gráfico previo si recargas dinámicamente
+    if (window.despachosChart && typeof window.despachosChart.destroy === 'function') {
+      window.despachosChart.destroy();
+    }
+
+    window.despachosChart = new Chart(ctx, {
+      type: 'bar',
+      data: {
+        labels,
+        datasets: [{
+          label: 'Despachos',
+          data: values,
+          backgroundColor: 'rgba(13,110,253,0.5)',
+          borderColor: 'rgba(13,110,253,1)',
+          borderWidth: 1,
+          borderRadius: 4
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        devicePixelRatio: dpr,
+        scales: {
+          y: {
+            beginAtZero: true,
+            suggestedMax: yMax,
+            ticks: {
+              precision: 0,
+              stepSize: step
+            }
           }
         }
-      });
-    })();
-  </script>
-</body>
-</html>
+      }
+    });
+  })();
+</script>
+{% endblock %}

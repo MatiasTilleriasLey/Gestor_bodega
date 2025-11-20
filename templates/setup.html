@@ -1,6 +1,7 @@
-{% include 'header.html' %}
-<body>
-  {% block content %}
+{% extends 'base.html' %}
+{% block title %}Setup · Bodega{% endblock %}
+{% set show_nav = False %}
+{% block content %}
 <div class="container mt-5" style="max-width: 500px;">
   <h2 class="mb-4">Bienvenido a La Bodega</h2>
   <p>Crea el primer usuario administrador:</p>
@@ -30,7 +31,6 @@
   </form>
 </div>
 {% endblock %}
-
 {% block scripts %}
 <script>
   function showAlert(type, msg) {
@@ -77,6 +77,3 @@
   }
 </script>
 {% endblock %}
-
-</body>
-</html>

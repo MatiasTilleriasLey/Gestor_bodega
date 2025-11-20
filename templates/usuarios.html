@@ -1,6 +1,6 @@
-{% include 'header.html' %}
-<body>
-  {% include 'nav.html' %} 
+{% extends 'base.html' %}
+{% block title %}Usuarios · Bodega{% endblock %}
+{% block content %}
   <div class="container mt-4">
     <h2>Usuarios Registrados</h2>
     <button type="button" class="btn btn-secondary mb-3" onclick="crear_usuario_modal()">
@@ -58,6 +58,9 @@
     </table>
   </div>
 
+{% endblock %}
+
+{% block scripts %}
   <script>
     // — Crear Usuario Modal —
     function crear_usuario_modal() {
@@ -249,6 +252,4 @@
       });
     }
   </script>
-</body>
-</html>
-
+{% endblock %}

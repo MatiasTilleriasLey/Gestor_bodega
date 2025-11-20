@@ -1,5 +1,7 @@
-{% include 'header.html' %}
-<body>
+{% extends 'base.html' %}
+{% block title %}Login · Bodega{% endblock %}
+{% set show_nav = False %}
+{% block content %}
   <div class="container">
     <br>
     <div class="alert alert-danger" role="alert" style="display: none" id="error">A simple danger alert—check it out!</div>
@@ -29,6 +31,7 @@
       </div>
     </div>
   </div>
-</body>
+{% endblock %}
+{% block scripts %}
 <script src="{{ url_for('static', filename='main.js') }}"></script>
-</html>
+{% endblock %}

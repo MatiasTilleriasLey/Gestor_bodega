@@ -1,9 +1,10 @@
-{% include 'header.html' %}
-<body>
+{% extends 'base.html' %}
+{% block title %}404 · Bodega{% endblock %}
+{% block content %}
   <div class="container">
-    <center>
-      <h1>404 pagina no encontrada</h1>
-    </center>
+    <div class="text-center py-5">
+      <h1 class="display-5">404</h1>
+      <p class="lead">Página no encontrada.</p>
+    </div>
   </div>
-</body>
-</html>
+{% endblock %}
