@@ -224,7 +224,7 @@
             <div class="card">
               <div class="card-body p-2">
                 <span class="badge text-bg-secondary mb-2 text-uppercase">${p.stage}</span>
-                <img src="${p.url}" alt="foto" class="img-fluid rounded-3">
+                <img src="${p.url}" alt="foto" class="img-fluid rounded-3 cursor-pointer" onclick="openPhotoViewer('${p.url}', '${p.stage}')">
                 <div class="text-muted small mt-1">${p.created_at || ''}</div>
               </div>
             </div>`;
@@ -256,5 +256,32 @@
       })
       .catch(() => alert('Error de red al subir la foto'));
   });
+
+  // visor ampliado
+  function openPhotoViewer(url, stage) {
+    const modalEl = document.getElementById('photoViewer');
+    const img = modalEl.querySelector('img');
+    const title = modalEl.querySelector('.modal-title');
+    img.src = url;
+    title.textContent = `Foto (${stage})`;
+    if (!window.photoViewer) {
+      window.photoViewer = new bootstrap.Modal(modalEl);
+    }
+    window.photoViewer.show();
+  }
 </script>
+<!-- Modal visor -->
+<div class="modal fade" id="photoViewer" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered modal-lg">
+    <div class="modal-content bg-dark text-white">
+      <div class="modal-header">
+        <h5 class="modal-title">Foto</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body text-center">
+        <img src="" alt="Foto" class="img-fluid rounded-4">
+      </div>
+    </div>
+  </div>
+</div>
 {% endblock %}
