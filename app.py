@@ -152,13 +152,19 @@ def _pdf_add_keyvals(pdf: FPDF, pairs):
 
 
 def _pdf_add_table(pdf: FPDF, headers, rows):
-    pdf.set_font("Helvetica", "B", 11)
-    for h, w in headers:
+    # Ajustar ancho total disponible
+    avail = pdf.w - pdf.l_margin - pdf.r_margin
+    total_w = sum(w for _, w in headers)
+    scale = avail / total_w if total_w > avail else 1
+    scaled = [(h, w * scale) for h, w in headers]
+
+    pdf.set_font("Helvetica", "B", 10)
+    for h, w in scaled:
         pdf.cell(w, 8, h, border=1)
     pdf.ln()
-    pdf.set_font("Helvetica", "", 11)
+    pdf.set_font("Helvetica", "", 10)
     for row in rows:
-        for idx, (_, w) in enumerate(headers):
+        for idx, (_, w) in enumerate(scaled):
             pdf.cell(w, 8, str(row[idx]), border=1)
         pdf.ln()
     pdf.ln(3)
@@ -185,7 +191,8 @@ def _pdf_add_photos(pdf: FPDF, photos):
             if os.path.exists(path):
                 pdf.cell(0, 6, _to_iso(p.created_at) or "", ln=1)
                 try:
-                    pdf.image(path, w=160)
+                    avail = pdf.w - pdf.l_margin - pdf.r_margin
+                    pdf.image(path, w=min(150, avail))
                 except Exception:
                     pdf.cell(0, 6, f"[No se pudo cargar la imagen {p.path}]", ln=1)
             else:
@@ -1519,6 +1526,7 @@ def api_despacho_fotos(batch_id):
 
 def _build_dispatch_pdf(batch: DispatchBatch):
     pdf = FPDF()
+    pdf.set_auto_page_break(True, margin=15)
     pdf.add_page()
     _pdf_header(pdf, f"Despacho #{batch.id}")
     _pdf_add_keyvals(pdf, [
@@ -1542,6 +1550,7 @@ def _build_dispatch_pdf(batch: DispatchBatch):
 
 def _build_order_pdf(order: PurchaseOrder):
     pdf = FPDF()
+    pdf.set_auto_page_break(True, margin=15)
     pdf.add_page()
     _pdf_header(pdf, f"Orden de compra #{order.number}")
     _pdf_add_keyvals(pdf, [
