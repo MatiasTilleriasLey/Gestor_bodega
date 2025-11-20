@@ -405,7 +405,48 @@ def api_ingresos_historico():
 @app.route('/dashboard')
 @login_required
 def dashboard():
-    return render_view("dashboard.html")
+    # KPIs básicos de operación
+    total_products = db.session.query(func.count(Product.id)).scalar() or 0
+    total_stock = db.session.query(func.coalesce(func.sum(Product.stock), 0)).scalar() or 0
+    total_ingresos = db.session.query(
+        func.coalesce(func.sum(InventoryEntry.quantity), 0)).scalar() or 0
+    total_despachos = db.session.query(
+        func.coalesce(func.sum(DispatchEntry.quantity), 0)).scalar() or 0
+    total_clientes = db.session.query(
+        func.count(Client.id)).scalar() or 0
+
+    # Estado de órdenes de compra
+    orders = PurchaseOrder.query.options(
+        joinedload(PurchaseOrder.items)
+    ).all()
+    status_totals = {'completas': 0, 'parciales': 0, 'pendientes': 0}
+    for po in orders:
+        solicitadas = sum(item.quantity for item in po.items)
+        despachadas = db.session.query(func.coalesce(
+            func.sum(DispatchEntry.quantity), 0))\
+            .join(DispatchBatch, DispatchEntry.batch_id == DispatchBatch.id)\
+            .filter(DispatchBatch.order_number == po.number)\
+            .scalar() or 0
+
+        if solicitadas <= 0:
+            status_totals['pendientes'] += 1
+        elif despachadas >= solicitadas:
+            status_totals['completas'] += 1
+        elif despachadas > 0:
+            status_totals['parciales'] += 1
+        else:
+            status_totals['pendientes'] += 1
+
+    stats = {
+        'productos': total_products,
+        'stock_total': total_stock,
+        'ingresos': total_ingresos,
+        'despachos': total_despachos,
+        'clientes': total_clientes,
+        'ordenes': len(orders),
+        'ordenes_status': status_totals
+    }
+    return render_view("dashboard.html", stats=stats)
 
 
 @app.route('/inventario')
