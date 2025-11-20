@@ -145,9 +145,11 @@ def _pdf_header(pdf: FPDF, title: str):
 
 
 def _pdf_add_keyvals(pdf: FPDF, pairs):
+    avail = pdf.w - pdf.l_margin - pdf.r_margin
     for label, value in pairs:
         pdf.cell(45, 8, f"{label}:", border=0)
-        pdf.multi_cell(0, 8, str(value or "—"), border=0)
+        width = max(20, avail - 45)
+        pdf.multi_cell(width, 8, str(value or "—"), border=0)
     pdf.ln(2)
 
 
