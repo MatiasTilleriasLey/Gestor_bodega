@@ -157,13 +157,10 @@ def _pdf_header(pdf: FPDF, title: str):
 
 
 def _pdf_add_keyvals(pdf: FPDF, pairs):
-    avail = pdf.w - pdf.l_margin - pdf.r_margin
-    label_w = 35
     for label, value in pairs:
-        pdf.cell(label_w, 8, f"{label}:", border=0)
-        width = max(25, avail - label_w)
-        pdf.multi_cell(width, 8, _wrap_pdf_text(value, width=40), border=0)
-    pdf.ln(2)
+        line = _pdf_sanitize(f"{label}: {value if value not in (None, '') else '-'}")
+        pdf.multi_cell(0, 8, _wrap_pdf_text(line, width=100), border=0)
+    pdf.ln(1)
 
 
 def _pdf_add_table(pdf: FPDF, headers, rows):
