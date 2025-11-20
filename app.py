@@ -1547,7 +1547,10 @@ def _build_dispatch_pdf(batch: DispatchBatch):
     _pdf_add_table(pdf, [("Producto", 70), ("Marca", 50), ("Cantidad", 30)], items)
     photos = DispatchPhoto.query.filter_by(batch_id=batch.id).order_by(DispatchPhoto.created_at).all()
     _pdf_add_photos(pdf, photos)
-    return pdf.output(dest='S').encode('latin-1')
+    data = pdf.output(dest='S')
+    if isinstance(data, bytearray):
+        return bytes(data)
+    return data
 
 
 def _build_order_pdf(order: PurchaseOrder):
@@ -1588,7 +1591,10 @@ def _build_order_pdf(order: PurchaseOrder):
             _pdf_add_table(pdf, [("Producto", 70), ("Marca", 50), ("Cantidad", 30)], b_items)
             _pdf_add_photos(pdf, b.photos)
 
-    return pdf.output(dest='S').encode('latin-1')
+    data = pdf.output(dest='S')
+    if isinstance(data, bytearray):
+        return bytes(data)
+    return data
 
 
 @app.route('/api/productos/suggest')
