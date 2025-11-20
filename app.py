@@ -1393,6 +1393,7 @@ def api_despacho_fotos(batch_id):
     fname = secure_filename(f"dispatch_{batch.id}_{stage}_{int(time.time())}.{ext}")
     rel_path = f"uploads/{fname}"
     save_path = os.path.join(UPLOAD_DIR, fname)
+    os.makedirs(UPLOAD_DIR, exist_ok=True)  # por si la carpeta fue eliminada
 
     try:
         file.save(save_path)
