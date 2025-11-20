@@ -1,4 +1,6 @@
 import json
+import os
+import time
 from datetime import datetime, timedelta
 from functools import wraps
 
@@ -13,6 +15,7 @@ from flask import (
     session,
     url_for,
 )
+from werkzeug.utils import secure_filename
 from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import joinedload
@@ -21,6 +24,7 @@ from database.db import (
     Client,
     DispatchBatch,
     DispatchEntry,
+    DispatchPhoto,
     InventoryEntry,
     IngresoBatch,
     Log,
@@ -42,6 +46,9 @@ app.config.from_mapping(
 
 ALLOWED_TAGS = []
 ALLOWED_ATTRS = {}
+UPLOAD_DIR = os.path.join(app.root_path, 'static', 'uploads')
+os.makedirs(UPLOAD_DIR, exist_ok=True)
+ALLOWED_IMAGE_EXT = {'png', 'jpg', 'jpeg', 'webp'}
 
 
 def clean_text(value: str) -> str:
@@ -121,6 +128,10 @@ def admin_required(f):
         # Si llegó aquí, es admin: ejecuta la vista
         return f(*args, **kwargs)
     return decorated_function
+
+
+def _allowed_file(filename: str) -> bool:
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_IMAGE_EXT
 
 
 # --------------------------------------------------------------------------- #
@@ -1345,6 +1356,68 @@ def api_despachos_historico():
             ]
         })
     return jsonify(result)
+
+
+@app.route('/api/despachos/<int:batch_id>/fotos', methods=['GET', 'POST'])
+@login_required
+def api_despacho_fotos(batch_id):
+    """Gestión de fotos de despacho (salida/entrega)."""
+    batch = DispatchBatch.query.get_or_404(batch_id)
+
+    if request.method == 'GET':
+        photos = (DispatchPhoto.query
+                  .filter_by(batch_id=batch.id)
+                  .order_by(DispatchPhoto.created_at.desc())
+                  .all())
+        out = []
+        for p in photos:
+            out.append({
+                'id': p.id,
+                'stage': p.stage,
+                'url': url_for('static', filename=p.path),
+                'created_at': _to_iso(p.created_at)
+            })
+        return jsonify(out)
+
+    # POST: carga de foto
+    stage = (request.form.get('stage') or '').lower()
+    file = request.files.get('photo')
+    if stage not in ('salida', 'entrega'):
+        return jsonify(error="stage debe ser 'salida' o 'entrega'"), 400
+    if not file or not file.filename:
+        return jsonify(error="Archivo de imagen requerido"), 400
+    if not _allowed_file(file.filename):
+        return jsonify(error="Formato no permitido"), 400
+
+    ext = file.filename.rsplit('.', 1)[1].lower()
+    fname = secure_filename(f"dispatch_{batch.id}_{stage}_{int(time.time())}.{ext}")
+    rel_path = f"uploads/{fname}"
+    save_path = os.path.join(UPLOAD_DIR, fname)
+
+    try:
+        file.save(save_path)
+        photo = DispatchPhoto(batch_id=batch.id, stage=stage, path=rel_path)
+        db.session.add(photo)
+        db.session.add(Log(
+            user_id=session.get('user_id'),
+            action='upload_dispatch_photo',
+            target_table='dispatch_batches',
+            target_id=batch.id,
+            details=json.dumps({'photo_id': None, 'stage': stage})
+        ))
+        db.session.commit()
+        return jsonify(
+            message="Foto guardada",
+            photo={'stage': stage, 'url': url_for('static', filename=rel_path)}
+        ), 201
+    except SQLAlchemyError:
+        db.session.rollback()
+        if os.path.exists(save_path):
+            try:
+                os.remove(save_path)
+            except OSError:
+                pass
+        return jsonify(error="No se pudo guardar la foto"), 500
 
 
 @app.route('/api/productos/suggest')

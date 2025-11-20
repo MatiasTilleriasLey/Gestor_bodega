@@ -122,6 +122,7 @@ class DispatchBatch(db.Model):
     client = relationship('Client', back_populates='batches')
     user = relationship('Users', backref='dispatch_batches')
     entries = relationship('DispatchEntry', back_populates='batch', lazy=True)
+    photos = relationship('DispatchPhoto', back_populates='batch', lazy=True)
 
     def __repr__(self):
         return f"<DispatchBatch id={self.id} client={self.client.name} at={self.created_at}>"
@@ -151,6 +152,27 @@ class DispatchEntry(db.Model):
 
     def __repr__(self):
         return f"<DispatchEntry id={self.id} prod={self.product.name} qty={self.quantity}>"
+
+
+@dataclass
+class DispatchPhoto(db.Model):
+    id:       int = field(init=False)
+    batch_id: int
+    stage:    str
+    path:     str
+    created_at: datetime = field(init=False)
+
+    __tablename__ = 'dispatch_photos'
+    id = Column(Integer, primary_key=True)
+    batch_id = Column(Integer, ForeignKey('dispatch_batches.id'), nullable=False, index=True)
+    stage = Column(String(20), nullable=False)  # 'salida' o 'entrega'
+    path = Column(String(255), nullable=False)  # ruta relativa en static
+    created_at = Column(DateTime(timezone=True), default=now_santiago, nullable=False)
+
+    batch = relationship('DispatchBatch', back_populates='photos')
+
+    def __repr__(self):
+        return f"<DispatchPhoto batch={self.batch_id} stage={self.stage} path={self.path}>"
 
 
 @dataclass

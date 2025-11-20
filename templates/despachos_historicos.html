@@ -36,11 +36,45 @@
         <th>Operador</th>
         <th>Fecha / Hora</th>
         <th>Detalles</th>
+        <th>Fotos</th>
         <th>Editar</th>
       </tr>
     </thead>
     <tbody></tbody>
   </table>
+
+  <!-- Modal de fotos -->
+  <div class="modal fade" id="photosModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title">Fotos despacho <span id="photoModalBatch"></span></h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <form id="photoForm" class="row g-2 align-items-center mb-3">
+            <input type="hidden" id="photoBatchId">
+            <div class="col-sm-4">
+              <label class="form-label">Etapa</label>
+              <select class="form-select" id="photoStage" required>
+                <option value="salida">Salida</option>
+                <option value="entrega">Entrega</option>
+              </select>
+            </div>
+            <div class="col-sm-5">
+              <label class="form-label">Imagen</label>
+              <input type="file" class="form-control" id="photoFile" accept="image/*" required>
+            </div>
+            <div class="col-sm-3 d-grid">
+              <label class="form-label invisible">Subir</label>
+              <button class="btn btn-primary" type="submit">Subir foto</button>
+            </div>
+          </form>
+          <div id="photosGrid" class="row g-2"></div>
+        </div>
+      </div>
+    </div>
+  </div>
 </div>
 {% endblock %}
 {% block scripts %}
@@ -113,6 +147,11 @@
           </button>
         </td>
         <td>
+          <button class="btn btn-sm btn-outline-primary" onclick="openPhotos(${b.batch_id})">
+            Evidencia
+          </button>
+        </td>
+        <td>
           <a
             href="/despachos/editar/${b.batch_id}"
             class="btn btn-sm btn-warning"
@@ -154,5 +193,68 @@
 
   // Inicializar al cargar página
   document.addEventListener('DOMContentLoaded', loadHistoricoDespachos);
+
+  // --- Fotos de despacho ---
+  let photosModal = null;
+  function openPhotos(batchId) {
+    document.getElementById('photoBatchId').value = batchId;
+    document.getElementById('photoModalBatch').textContent = `#${batchId}`;
+    document.getElementById('photoFile').value = '';
+    loadPhotos(batchId);
+    if (!photosModal) {
+      photosModal = new bootstrap.Modal(document.getElementById('photosModal'));
+    }
+    photosModal.show();
+  }
+
+  function loadPhotos(batchId) {
+    fetch(`/api/despachos/${batchId}/fotos`)
+      .then(r => r.json())
+      .then(list => {
+        const grid = document.getElementById('photosGrid');
+        grid.innerHTML = '';
+        if (!Array.isArray(list) || !list.length) {
+          grid.innerHTML = '<div class="text-muted">Sin fotos aún.</div>';
+          return;
+        }
+        list.forEach(p => {
+          const col = document.createElement('div');
+          col.className = 'col-sm-6 col-md-4';
+          col.innerHTML = `
+            <div class="card">
+              <div class="card-body p-2">
+                <span class="badge text-bg-secondary mb-2 text-uppercase">${p.stage}</span>
+                <img src="${p.url}" alt="foto" class="img-fluid rounded-3">
+                <div class="text-muted small mt-1">${p.created_at || ''}</div>
+              </div>
+            </div>`;
+          grid.appendChild(col);
+        });
+      });
+  }
+
+  document.getElementById('photoForm').addEventListener('submit', ev => {
+    ev.preventDefault();
+    const batchId = document.getElementById('photoBatchId').value;
+    const stage = document.getElementById('photoStage').value;
+    const file = document.getElementById('photoFile').files[0];
+    if (!file) return;
+    const fd = new FormData();
+    fd.append('stage', stage);
+    fd.append('photo', file);
+    fetch(`/api/despachos/${batchId}/fotos`, {
+      method: 'POST',
+      body: fd
+    })
+      .then(r => r.json().then(body => ({ status: r.status, body })))
+      .then(({ status, body }) => {
+        if (status >= 200 && status < 300) {
+          loadPhotos(batchId);
+        } else {
+          alert(body.error || 'No se pudo subir la foto');
+        }
+      })
+      .catch(() => alert('Error de red al subir la foto'));
+  });
 </script>
 {% endblock %}
