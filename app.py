@@ -1,3 +1,4 @@
+import io
 import json
 import os
 import time
@@ -13,8 +14,10 @@ from flask import (
     render_template,
     request,
     session,
+    send_file,
     url_for,
 )
+from fpdf import FPDF
 from werkzeug.utils import secure_filename
 from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
@@ -132,6 +135,62 @@ def admin_required(f):
 
 def _allowed_file(filename: str) -> bool:
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_IMAGE_EXT
+
+
+def _pdf_header(pdf: FPDF, title: str):
+    pdf.set_font("Helvetica", "B", 16)
+    pdf.cell(0, 10, title, ln=1)
+    pdf.ln(2)
+    pdf.set_font("Helvetica", "", 11)
+
+
+def _pdf_add_keyvals(pdf: FPDF, pairs):
+    for label, value in pairs:
+        pdf.cell(45, 8, f"{label}:", border=0)
+        pdf.multi_cell(0, 8, str(value or "—"), border=0)
+    pdf.ln(2)
+
+
+def _pdf_add_table(pdf: FPDF, headers, rows):
+    pdf.set_font("Helvetica", "B", 11)
+    for h, w in headers:
+        pdf.cell(w, 8, h, border=1)
+    pdf.ln()
+    pdf.set_font("Helvetica", "", 11)
+    for row in rows:
+        for idx, (_, w) in enumerate(headers):
+            pdf.cell(w, 8, str(row[idx]), border=1)
+        pdf.ln()
+    pdf.ln(3)
+
+
+def _pdf_add_photos(pdf: FPDF, photos):
+    if not photos:
+        pdf.cell(0, 8, "Sin fotos adjuntas.", ln=1)
+        pdf.ln(2)
+        return
+    stage_order = ['salida', 'entrega']
+    grouped = {s: [] for s in stage_order}
+    for p in photos:
+        grouped.setdefault(p.stage, []).append(p)
+    for stage in stage_order:
+        plist = grouped.get(stage, [])
+        if not plist:
+            continue
+        pdf.set_font("Helvetica", "B", 12)
+        pdf.cell(0, 8, f"Fotos {stage}", ln=1)
+        pdf.set_font("Helvetica", "", 11)
+        for p in plist:
+            path = os.path.join(app.root_path, 'static', p.path)
+            if os.path.exists(path):
+                pdf.cell(0, 6, _to_iso(p.created_at) or "", ln=1)
+                try:
+                    pdf.image(path, w=160)
+                except Exception:
+                    pdf.cell(0, 6, f"[No se pudo cargar la imagen {p.path}]", ln=1)
+            else:
+                pdf.cell(0, 6, f"[Archivo faltante: {p.path}]", ln=1)
+        pdf.ln(4)
 
 
 # --------------------------------------------------------------------------- #
@@ -875,6 +934,43 @@ def api_merge_products():
         return jsonify(error="Error interno durante la fusión"), 500
 
 
+# --------------------------------------------------------------------------- #
+# Exportaciones PDF (despachos y órdenes)
+# --------------------------------------------------------------------------- #
+@app.route('/despachos/<int:batch_id>/export/pdf')
+@login_required
+def export_despacho_pdf(batch_id):
+    batch = DispatchBatch.query.options(
+        joinedload(DispatchBatch.client),
+        joinedload(DispatchBatch.user),
+        joinedload(DispatchBatch.entries).joinedload(DispatchEntry.product),
+        joinedload(DispatchBatch.photos)
+    ).get_or_404(batch_id)
+    pdf_bytes = _build_dispatch_pdf(batch)
+    return send_file(
+        io.BytesIO(pdf_bytes),
+        mimetype='application/pdf',
+        download_name=f"despacho_{batch.id}.pdf",
+        as_attachment=True
+    )
+
+
+@app.route('/ordenes/<int:order_id>/export/pdf')
+@login_required
+def export_orden_pdf(order_id):
+    order = PurchaseOrder.query.options(
+        joinedload(PurchaseOrder.client),
+        joinedload(PurchaseOrder.items).joinedload(PurchaseOrderItem.product)
+    ).get_or_404(order_id)
+    pdf_bytes = _build_order_pdf(order)
+    return send_file(
+        io.BytesIO(pdf_bytes),
+        mimetype='application/pdf',
+        download_name=f"orden_{order.number}.pdf",
+        as_attachment=True
+    )
+
+
 @app.route('/ingresos/historicos', methods=["GET"])
 @login_required
 def ingresos_historicos():
@@ -1419,6 +1515,69 @@ def api_despacho_fotos(batch_id):
             except OSError:
                 pass
         return jsonify(error="No se pudo guardar la foto"), 500
+
+
+def _build_dispatch_pdf(batch: DispatchBatch):
+    pdf = FPDF()
+    pdf.add_page()
+    _pdf_header(pdf, f"Despacho #{batch.id}")
+    _pdf_add_keyvals(pdf, [
+        ("Cliente", getattr(batch.client, 'name', '')),
+        ("Operador", getattr(batch.user, 'name', '')),
+        ("Fecha", batch.created_at.strftime('%d/%m/%Y %H:%M') if batch.created_at else ''),
+        ("Orden #", getattr(batch, 'order_number', '') or '—'),
+    ])
+    items = []
+    for e in batch.entries:
+        items.append([
+            getattr(e.product, 'name', ''),
+            getattr(e.product, 'brand', ''),
+            e.quantity
+        ])
+    _pdf_add_table(pdf, [("Producto", 70), ("Marca", 50), ("Cantidad", 30)], items)
+    photos = DispatchPhoto.query.filter_by(batch_id=batch.id).order_by(DispatchPhoto.created_at).all()
+    _pdf_add_photos(pdf, photos)
+    return pdf.output(dest='S').encode('latin-1')
+
+
+def _build_order_pdf(order: PurchaseOrder):
+    pdf = FPDF()
+    pdf.add_page()
+    _pdf_header(pdf, f"Orden de compra #{order.number}")
+    _pdf_add_keyvals(pdf, [
+        ("Cliente", getattr(order.client, 'name', '')),
+        ("Fecha creación", order.created_at.strftime('%d/%m/%Y %H:%M') if order.created_at else '')
+    ])
+    items = []
+    for it in order.items:
+        items.append([it.product.name, it.product.brand, it.quantity])
+    _pdf_add_table(pdf, [("Producto", 70), ("Marca", 50), ("Cantidad", 30)], items)
+
+    # Despachos asociados a la orden
+    batches = DispatchBatch.query.options(
+        joinedload(DispatchBatch.entries).joinedload(DispatchEntry.product),
+        joinedload(DispatchBatch.photos)
+    ).filter_by(order_number=order.number).all()
+
+    if not batches:
+        pdf.cell(0, 8, "Sin despachos asociados.", ln=1)
+    else:
+        for b in batches:
+            pdf.set_font("Helvetica", "B", 13)
+            pdf.cell(0, 10, f"Despacho #{b.id}", ln=1)
+            pdf.set_font("Helvetica", "", 11)
+            _pdf_add_keyvals(pdf, [
+                ("Cliente", getattr(b.client, 'name', '')),
+                ("Operador", getattr(b.user, 'name', '')),
+                ("Fecha", b.created_at.strftime('%d/%m/%Y %H:%M') if b.created_at else '')
+            ])
+            b_items = []
+            for e in b.entries:
+                b_items.append([getattr(e.product, 'name', ''), getattr(e.product, 'brand', ''), e.quantity])
+            _pdf_add_table(pdf, [("Producto", 70), ("Marca", 50), ("Cantidad", 30)], b_items)
+            _pdf_add_photos(pdf, b.photos)
+
+    return pdf.output(dest='S').encode('latin-1')
 
 
 @app.route('/api/productos/suggest')

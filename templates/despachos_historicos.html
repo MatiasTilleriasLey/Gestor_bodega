@@ -37,6 +37,7 @@
         <th>Fecha / Hora</th>
         <th>Detalles</th>
         <th>Fotos</th>
+        <th>PDF</th>
         <th>Editar</th>
       </tr>
     </thead>
@@ -152,6 +153,11 @@
           </button>
         </td>
         <td>
+          <button class="btn btn-sm btn-outline-secondary" onclick="exportPDF(${b.batch_id})">
+            PDF
+          </button>
+        </td>
+        <td>
           <a
             href="/despachos/editar/${b.batch_id}"
             class="btn btn-sm btn-warning"
@@ -256,6 +262,10 @@
       })
       .catch(() => alert('Error de red al subir la foto'));
   });
+
+  function exportPDF(batchId) {
+    window.open(`/despachos/${batchId}/export/pdf`, '_blank');
+  }
 
   // visor ampliado
   function openPhotoViewer(url, stage) {

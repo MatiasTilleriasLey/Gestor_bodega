@@ -7,6 +7,11 @@
     <strong>Cliente:</strong> {{ order.client.name }}<br>
     <strong>Fecha:</strong> {{ order.created_at.strftime('%d/%m/%Y %H:%M') }}
   </p>
+  <div class="mb-3 d-flex gap-2">
+    <a class="btn btn-outline-secondary" href="{{ url_for('export_orden_pdf', order_id=order.id) }}" target="_blank">
+      <i class="bi bi-file-earmark-pdf"></i> Exportar PDF
+    </a>
+  </div>
 
   <table class="table table-bordered">
     <thead>
