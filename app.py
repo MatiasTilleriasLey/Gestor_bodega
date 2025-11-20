@@ -157,10 +157,10 @@ def _pdf_header(pdf: FPDF, title: str):
 
 
 def _pdf_add_keyvals(pdf: FPDF, pairs):
-    max_width = pdf.w - pdf.l_margin - pdf.r_margin
+    max_width = max(20, pdf.w - pdf.l_margin - pdf.r_margin - 2)
     for label, value in pairs:
         line = _pdf_sanitize(f"{label}: {value if value not in (None, '') else '-'}")
-        wrapped = _wrap_pdf_text(line, width=90)
+        wrapped = _wrap_pdf_text(line, width=60)
         pdf.multi_cell(max_width, 8, wrapped, border=0)
     pdf.ln(1)
 
