@@ -220,3 +220,4 @@ templates/*.bak
 # Local data and docs
 instance/
 AGENTS.md
+static/uploads/

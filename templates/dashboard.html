@@ -23,33 +23,6 @@
           </div>
         </div>
       </div>
-
-      <div class="col-md-3 col-sm-6">
-        <div class="card h-100 shadow-sm">
-          <div class="card-body">
-            <div class="d-flex justify-content-between align-items-center mb-2">
-              <span class="text-muted">Ingresos</span>
-              <i class="bi bi-arrow-down-circle text-success"></i>
-            </div>
-            <div class="display-6 fw-bold">{{ stats.ingresos|default(0) }}</div>
-            <p class="text-muted small mb-0">Unidades recibidas históricas</p>
-          </div>
-        </div>
-      </div>
-
-      <div class="col-md-3 col-sm-6">
-        <div class="card h-100 shadow-sm">
-          <div class="card-body">
-            <div class="d-flex justify-content-between align-items-center mb-2">
-              <span class="text-muted">Despachos</span>
-              <i class="bi bi-arrow-up-circle text-danger"></i>
-            </div>
-            <div class="display-6 fw-bold">{{ stats.despachos|default(0) }}</div>
-            <p class="text-muted small mb-0">Unidades despachadas históricas</p>
-          </div>
-        </div>
-      </div>
-
       <div class="col-md-3 col-sm-6">
         <div class="card h-100 shadow-sm">
           <div class="card-body">
@@ -72,6 +45,19 @@
             </div>
             <div class="display-6 fw-bold">{{ stats.despachos_batches|default(0) }}</div>
             <p class="text-muted small mb-0">Cantidad total de despachos emitidos</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="col-md-3 col-sm-6">
+        <div class="card h-100 shadow-sm">
+          <div class="card-body">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+              <span class="text-muted">Stock crítico</span>
+              <i class="bi bi-exclamation-octagon text-warning"></i>
+            </div>
+            <div class="display-6 fw-bold">{{ stats.stock_critico|default(0) }}</div>
+            <p class="text-muted small mb-0">Productos con stock ≤ 5 uds</p>
           </div>
         </div>
       </div>
@@ -100,20 +86,11 @@
         <div class="card h-100 shadow-sm">
           <div class="card-body">
             <div class="d-flex justify-content-between align-items-center mb-2">
-              <span class="text-muted">Saldo inventario</span>
-              <i class="bi bi-activity text-secondary"></i>
+              <span class="text-muted">Clientes atendidos (30 días)</span>
+              <i class="bi bi-hand-thumbs-up text-success"></i>
             </div>
-            <p class="mb-2 small text-muted">Resumen rápido de entradas vs salidas.</p>
-            <div class="progress mb-2" style="height: 12px;">
-              {% set total_mov = (stats.ingresos|default(0)) + (stats.despachos|default(0)) %}
-              {% set desp_pct = 0 if total_mov == 0 else (stats.despachos / total_mov * 100) %}
-              <div class="progress-bar bg-success" role="progressbar" style="width: {{ 100 - desp_pct }}%"></div>
-              <div class="progress-bar bg-danger" role="progressbar" style="width: {{ desp_pct }}%"></div>
-            </div>
-            <div class="d-flex justify-content-between">
-              <span class="text-success small">Ingreso: {{ stats.ingresos|default(0) }}</span>
-              <span class="text-danger small">Despacho: {{ stats.despachos|default(0) }}</span>
-            </div>
+            <div class="display-6 fw-bold mb-2">{{ stats.clientes_ult_30|default(0) }}</div>
+            <p class="text-muted small mb-0">Clientes con al menos un despacho en los últimos 30 días</p>
           </div>
         </div>
       </div>

@@ -173,12 +173,19 @@
       det.classList.add('d-none');
       det.innerHTML = `
         <td colspan="5">
-          <ul class="list-group">
-            ${b.items.map(i => `
-              <li class="list-group-item">
-                [${i.quantity}] ${i.product} — ${i.brand}
-              </li>`).join('')}
-          </ul>
+          <div class="card mb-3 shadow-sm border-0">
+            <div class="card-header bg-body-secondary text-body d-flex flex-wrap justify-content-between align-items-center">
+              <span class="fw-semibold">Despacho #${b.batch_id} por ${b.user}</span>
+              <span class="text-body-secondary small">${b.created_at}</span>
+            </div>
+            <ul class="list-group list-group-flush">
+              ${b.items.map(i => `
+                <li class="list-group-item d-flex align-items-center gap-2">
+                  <span class="badge text-bg-primary">${i.quantity}</span>
+                  <span class="text-body">${i.product} — ${i.brand}</span>
+                </li>`).join('')}
+            </ul>
+          </div>
         </td>`;
       tbody.appendChild(det);
     });
@@ -230,8 +237,13 @@
             <div class="card">
               <div class="card-body p-2">
                 <span class="badge text-bg-secondary mb-2 text-uppercase">${p.stage}</span>
-                <img src="${p.url}" alt="foto" class="img-fluid rounded-3 cursor-pointer" onclick="openPhotoViewer('${p.url}', '${p.stage}')">
+                <img src="${p.url}" alt="foto" class="img-fluid rounded-3 cursor-pointer" onclick="openPhotoNewTab('${p.url}')">
                 <div class="text-muted small mt-1">${p.created_at || ''}</div>
+                <div class="d-grid gap-2 mt-2">
+                  <button class="btn btn-sm btn-outline-danger" type="button" onclick="deletePhoto(${batchId}, ${p.id})">
+                    Eliminar
+                  </button>
+                </div>
               </div>
             </div>`;
           grid.appendChild(col);
@@ -267,31 +279,23 @@
     window.open(`/despachos/${batchId}/export/pdf`, '_blank');
   }
 
-  // visor ampliado
-  function openPhotoViewer(url, stage) {
-    const modalEl = document.getElementById('photoViewer');
-    const img = modalEl.querySelector('img');
-    const title = modalEl.querySelector('.modal-title');
-    img.src = url;
-    title.textContent = `Foto (${stage})`;
-    if (!window.photoViewer) {
-      window.photoViewer = new bootstrap.Modal(modalEl);
-    }
-    window.photoViewer.show();
+  function openPhotoNewTab(url) {
+    window.open(url, '_blank');
+  }
+
+  function deletePhoto(batchId, photoId) {
+    if (!confirm('¿Eliminar esta foto?')) return;
+    fetch(`/api/despachos/${batchId}/fotos/${photoId}`, { method: 'DELETE' })
+      .then(r => r.json().then(body => ({ status: r.status, body })))
+      .then(({ status, body }) => {
+        if (status >= 200 && status < 300) {
+          loadPhotos(batchId);
+        } else {
+          alert(body.error || 'No se pudo eliminar la foto');
+        }
+      })
+      .catch(() => alert('No se pudo eliminar la foto'));
   }
 </script>
-<!-- Modal visor -->
-<div class="modal fade" id="photoViewer" tabindex="-1" aria-hidden="true">
-  <div class="modal-dialog modal-dialog-centered modal-lg">
-    <div class="modal-content bg-dark text-white">
-      <div class="modal-header">
-        <h5 class="modal-title">Foto</h5>
-        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
-      </div>
-      <div class="modal-body text-center">
-        <img src="" alt="Foto" class="img-fluid rounded-4">
-      </div>
-    </div>
-  </div>
-</div>
+<!-- Modal visor se mantiene para compatibilidad pero ya no se usa -->
 {% endblock %}

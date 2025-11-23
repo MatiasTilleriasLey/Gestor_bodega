@@ -67,18 +67,19 @@
 <h3>Despachos asociados</h3>
 {% if dispatch_history %}
   {% for d in dispatch_history %}
-    <div class="card mb-3 bg-dark text-white">
-      <div class="card-header">
-        Despacho #{{ d.batch_id }} por {{ d.user }}
-        <span class="float-end">
-          {{ d.created.strftime('%d/%m/%Y %H:%M') }}
-          <button class="btn btn-sm btn-outline-info ms-2" onclick="openPhotos({{ d.batch_id }})">Fotos</button>
+    <div class="card mb-3 shadow-sm border-0">
+      <div class="card-header bg-body-secondary text-body d-flex flex-wrap justify-content-between align-items-center">
+        <span class="fw-semibold">Despacho #{{ d.batch_id }} por {{ d.user }}</span>
+        <span class="d-flex align-items-center gap-2 text-body-secondary">
+          <small>{{ d.created.strftime('%d/%m/%Y %H:%M') }}</small>
+          <button class="btn btn-sm btn-outline-primary" onclick="openPhotos({{ d.batch_id }})">Fotos</button>
         </span>
       </div>
-      <ul class="list-group list-group-flush bg-white text-dark">
+      <ul class="list-group list-group-flush">
         {% for it in d['items'] %}
-        <li class="list-group-item">
-          [{{ it.qty }}] {{ it.product }} — {{ it.brand }}
+        <li class="list-group-item d-flex align-items-center gap-2">
+          <span class="badge text-bg-primary">{{ it.qty }}</span>
+          <span class="text-body">{{ it.product }} — {{ it.brand }}</span>
         </li>
         {% endfor %}
       </ul>
@@ -151,25 +152,30 @@
       .then(r => r.json())
       .then(list => {
         const grid = document.getElementById('photosGrid');
-        grid.innerHTML = '';
-        if (!Array.isArray(list) || !list.length) {
-          grid.innerHTML = '<div class="text-muted">Sin fotos aún.</div>';
-          return;
-        }
-        list.forEach(p => {
-          const col = document.createElement('div');
-          col.className = 'col-sm-6 col-md-4';
-          col.innerHTML = `
-            <div class="card">
-              <div class="card-body p-2">
-                <span class="badge text-bg-secondary mb-2 text-uppercase">${p.stage}</span>
-                <img src="${p.url}" alt="foto" class="img-fluid rounded-3 cursor-pointer" onclick="openPhotoViewer('${p.url}', '${p.stage}')">
-                <div class="text-muted small mt-1">${p.created_at || ''}</div>
+      grid.innerHTML = '';
+      if (!Array.isArray(list) || !list.length) {
+        grid.innerHTML = '<div class="text-muted">Sin fotos aún.</div>';
+        return;
+      }
+      list.forEach(p => {
+        const col = document.createElement('div');
+        col.className = 'col-sm-6 col-md-4';
+        col.innerHTML = `
+          <div class="card">
+            <div class="card-body p-2">
+              <span class="badge text-bg-secondary mb-2 text-uppercase">${p.stage}</span>
+              <img src="${p.url}" alt="foto" class="img-fluid rounded-3 cursor-pointer" onclick="openPhotoNewTab('${p.url}')">
+              <div class="text-muted small mt-1">${p.created_at || ''}</div>
+              <div class="d-grid gap-2 mt-2">
+                <button class="btn btn-sm btn-outline-danger" type="button" onclick="deletePhoto(${batchId}, ${p.id})">
+                  Eliminar
+                </button>
               </div>
-            </div>`;
-          grid.appendChild(col);
-        });
+            </div>
+          </div>`;
+        grid.appendChild(col);
       });
+    });
   }
 
   function uploadPhoto(ev) {
@@ -196,18 +202,25 @@
       .catch(() => alert('Error de red al subir la foto'));
   }
 
-  function openPhotoViewer(url, stage) {
-    const modalEl = document.getElementById('photoViewer');
-    const img = modalEl.querySelector('img');
-    const title = modalEl.querySelector('.modal-title');
-    img.src = url;
-    title.textContent = `Foto (${stage})`;
-    if (!window.photoViewer) {
-      window.photoViewer = new bootstrap.Modal(modalEl);
-    }
-    window.photoViewer.show();
+  function openPhotoNewTab(url) {
+    window.open(url, '_blank');
+  }
+
+  function deletePhoto(batchId, photoId) {
+    if (!confirm('¿Eliminar esta foto?')) return;
+    fetch(`/api/despachos/${batchId}/fotos/${photoId}`, { method: 'DELETE' })
+      .then(r => r.json().then(body => ({ status: r.status, body })))
+      .then(({ status, body }) => {
+        if (status >= 200 && status < 300) {
+          loadPhotos(batchId);
+        } else {
+          alert(body.error || 'No se pudo eliminar la foto');
+        }
+      })
+      .catch(() => alert('No se pudo eliminar la foto'));
   }
 </script>
+<!-- Modal de visor ya no se usa pero se mantiene para compatibilidad -->
 <div class="modal fade" id="photoViewer" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-dialog-centered modal-lg">
     <div class="modal-content bg-dark text-white">
@@ -216,7 +229,7 @@
         <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
       </div>
       <div class="modal-body text-center">
-        <img src="" alt="Foto" class="img-fluid rounded-4">
+        <img src="" alt="Foto" class="img-fluid rounded-4" style="max-height:70vh;object-fit:contain;">
       </div>
     </div>
   </div>

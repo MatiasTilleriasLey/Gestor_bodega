@@ -3,7 +3,11 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="csrf-token" content="{{ csrf_token }}">
     <title>{% block title %}Bodega{% endblock %}</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.7/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.13.1/font/bootstrap-icons.min.css">
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
@@ -19,6 +23,28 @@
     </main>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.7/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+      (() => {
+        const CSRF_TOKEN = document.querySelector('meta[name="csrf-token"]')?.content || '';
+        const originalFetch = window.fetch;
+        window.fetch = (input, init = {}) => {
+          init.headers = init.headers || {};
+          if (init.headers instanceof Headers) {
+            if (!init.headers.has('X-CSRFToken')) init.headers.append('X-CSRFToken', CSRF_TOKEN);
+          } else {
+            init.headers = { 'X-CSRFToken': CSRF_TOKEN, ...init.headers };
+          }
+          return originalFetch(input, init);
+        };
+        const origSend = XMLHttpRequest.prototype.send;
+        XMLHttpRequest.prototype.send = function (body) {
+          try {
+            this.setRequestHeader('X-CSRFToken', CSRF_TOKEN);
+          } catch (e) {}
+          return origSend.call(this, body);
+        };
+      })();
+    </script>
     {% block scripts %}{% endblock %}
   </body>
 </html>
