@@ -1,0 +1,15 @@
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.db
+*.sqlite3
+*.sqlite3-journal
+.venv/
+.env
+.envrc
+.git
+.gitignore
+instance/
+static/uploads/
+pip-selfcheck.json
